@@ -123,8 +123,8 @@ Risk levels: `ReadOnly` (runs freely) · `Write` (requires confirmation prompt)
 - **Tool registry, not command generation.** Claude picks from approved tools only — it never writes raw PowerShell.
 - **Write tools require confirmation.** Any tool with `CLAW_RISK = Write` pauses and asks Y/N before executing.
 - **`-DryRun` mode.** Skips execution of write tools entirely.
-- **`-Plan` mode.** Shows what Claude would do without running anything.
-- **Output truncation.** Tool output is capped at 12,000 chars before being sent to the API.
+- **`-Plan` mode.** Shows the first tool Claude would call (step-1 preview). Run without `-Plan` to execute all steps.
+- **Output truncation.** Tool output is capped at `max_output_chars` (config.json) before being sent to the API.
 
 ---
 

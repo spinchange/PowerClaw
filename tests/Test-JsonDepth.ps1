@@ -109,13 +109,75 @@ Assert-Contains "Message array: tool_use type present"   $json '"tool_use"'
 Assert-Contains "Message array: tool_use_id present"     $json '"tool_use_id"'
 Assert-Contains "Message array: tool input SortBy"       $json '"SortBy"'
 
-# ── Test falsy-but-valid metadata (regression for ConvertTo-ToolSchema fix) ──
-Write-Host "`n── Falsy-but-valid schema metadata ──" -ForegroundColor Cyan
+# ── Test falsy-but-valid metadata through the full registry→schema pipeline ──
+# This tests the actual failing path: Register-ClawTools extracts defaults via
+# AST parsing, then ConvertTo-ClaudeToolSchema serializes them.
+Write-Host "`n── Falsy defaults: registry extraction (AST path) ──" -ForegroundColor Cyan
 
 $root = Split-Path $PSScriptRoot -Parent
 . (Join-Path $root "registry\ConvertTo-ToolSchema.ps1")
 
+# Write a minimal tool to a temp file so we can run the AST extraction on it —
+# the same path Register-ClawTools takes for real tool files.
+$tmpTool = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.ps1'
+Set-Content $tmpTool @'
+function Test-FalsyDefaultsTool {
+    [CmdletBinding()]
+    param(
+        [int]$MinSize    = 0,
+        [bool]$Aggregate = $false,
+        [string]$Label   = ""
+    )
+}
+'@
+
+# Replicate the AST extraction logic from Register-ClawTools
+. $tmpTool
+$funcInfo = Get-Command -Name "Test-FalsyDefaultsTool"
+$fileAst  = [System.Management.Automation.Language.Parser]::ParseFile($tmpTool, [ref]$null, [ref]$null)
+$funcAst  = $fileAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq "Test-FalsyDefaultsTool"
+}, $true)
+$astDefaults = @{}
+if ($funcAst -and $funcAst.Body.ParamBlock) {
+    foreach ($astParam in $funcAst.Body.ParamBlock.Parameters) {
+        $pName = $astParam.Name.VariablePath.UserPath
+        if ($null -ne $astParam.DefaultValue) {
+            try { $astDefaults[$pName] = $astParam.DefaultValue.SafeGetValue() } catch {}
+        }
+    }
+}
+Remove-Item $tmpTool -ErrorAction SilentlyContinue
+
+$skip = @('Verbose','Debug','ErrorAction','WarningAction','InformationAction',
+    'ErrorVariable','WarningVariable','InformationVariable','OutVariable',
+    'OutBuffer','PipelineVariable','ProgressAction')
+$extracted = foreach ($p in $funcInfo.Parameters.Values) {
+    if ($p.Name -in $skip) { continue }
+    $pi = @{ Name = $p.Name; Type = $p.ParameterType.Name; Required = $false }
+    if ($astDefaults.ContainsKey($p.Name)) { $pi.Default = $astDefaults[$p.Name] }
+    [PSCustomObject]$pi
+}
+
 $testTool = [PSCustomObject]@{
+    Name        = "Test-FalsyDefaultsTool"
+    Description = "Regression tool for falsy default extraction"
+    Parameters  = @($extracted)
+}
+
+$schema = ConvertTo-ClaudeToolSchema $testTool
+$json   = $schema | ConvertTo-Json -Depth 10
+
+Assert-Contains    "Registry AST: MinSize=0 extracted and emitted"          $json '"default": 0'
+Assert-Contains    "Registry AST: Aggregate=false extracted and emitted"    $json '"default": false'
+Assert-Contains    "Registry AST: Label=empty string extracted and emitted" $json '"default": ""'
+
+# Also verify the serializer layer still works correctly in isolation
+Write-Host "`n── Falsy defaults: serializer layer ──" -ForegroundColor Cyan
+
+$directTool = [PSCustomObject]@{
     Name        = "Test-FalsyDefaults"
     Description = "Tool with falsy but valid parameter metadata"
     Parameters  = @(
@@ -125,14 +187,14 @@ $testTool = [PSCustomObject]@{
     )
 }
 
-$schema = ConvertTo-ClaudeToolSchema $testTool
-$json = $schema | ConvertTo-Json -Depth 10
+$directSchema = ConvertTo-ClaudeToolSchema $directTool
+$directJson   = $directSchema | ConvertTo-Json -Depth 10
 
-Assert-Contains    "Falsy Min=0 emits minimum:0"        $json '"minimum": 0'
-Assert-Contains    "Falsy Default=false emits default"  $json '"default": false'
-Assert-Contains    "Falsy Default=empty emits default"  $json '"default": ""'
-Assert-NotContains "Null Min does not emit minimum"     $json '"minimum": null'
-Assert-NotContains "Null Max does not emit maximum"     $json '"maximum": null'
+Assert-Contains    "Serializer: Min=0 emits minimum:0"         $directJson '"minimum": 0'
+Assert-Contains    "Serializer: Default=$false emits default"  $directJson '"default": false'
+Assert-Contains    "Serializer: Default=empty emits default"   $directJson '"default": ""'
+Assert-NotContains "Serializer: Null Min not emitted"          $directJson '"minimum": null'
+Assert-NotContains "Serializer: Null Max not emitted"          $directJson '"maximum": null'
 
 # ── Summary ──
 Write-Host "`n── Results: $pass passed, $fail failed ──" -ForegroundColor $(if ($fail -eq 0) { 'Green' } else { 'Red' })

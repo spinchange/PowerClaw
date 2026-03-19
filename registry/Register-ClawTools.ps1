@@ -41,6 +41,26 @@ function Register-ClawTools {
             continue
         }
 
+        # Parse AST for default values — reflection ($p.DefaultValue) always returns
+        # null for function parameters; AST is the only reliable way to get literals
+        # like 0, $false, and "". SafeGetValue() works on constant/literal nodes.
+        $fileAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            $file.FullName, [ref]$null, [ref]$null)
+        $funcAst = $fileAst.Find({
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -eq $name
+        }, $true)
+        $astDefaults = @{}
+        if ($funcAst -and $funcAst.Body.ParamBlock) {
+            foreach ($astParam in $funcAst.Body.ParamBlock.Parameters) {
+                $pName = $astParam.Name.VariablePath.UserPath
+                if ($null -ne $astParam.DefaultValue) {
+                    try { $astDefaults[$pName] = $astParam.DefaultValue.SafeGetValue() } catch {}
+                }
+            }
+        }
+
         # Extract parameter metadata
         $params = foreach ($p in $funcInfo.Parameters.Values) {
             # Skip common PS parameters
@@ -66,8 +86,8 @@ function Register-ClawTools {
                 $paramInfo.Max = $valRange[0].MaxRange
             }
 
-            # Capture default from function AST (best effort)
-            if ($p.DefaultValue) { $paramInfo.Default = $p.DefaultValue }
+            # Capture default from AST lookup (handles 0, $false, "" correctly)
+            if ($astDefaults.ContainsKey($p.Name)) { $paramInfo.Default = $astDefaults[$p.Name] }
 
             [PSCustomObject]$paramInfo
         }
