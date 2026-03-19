@@ -1,6 +1,6 @@
-# PowerCLAW — Question Bank
+# PowerClaw — Question Bank
 
-A reference of prompts to explore what PowerCLAW can do with its current 13 tools.
+A reference of prompts to explore what PowerClaw can do with its current 13 tools.
 
 ---
 
@@ -54,32 +54,32 @@ A reference of prompts to explore what PowerCLAW can do with its current 13 tool
 - "How much space would I free up by deleting all zip files in Downloads?"
 - "Find all files larger than 1GB anywhere in my user profile"
 - "What are the most recently modified files in my projects folder?"
-- "Find all config files across my PowerCLAW project"
+- "Find all config files across my PowerClaw project"
 
 ### Get-DirectoryListing
 - "What's in my Downloads folder?"
-- "Show me the contents of my PowerCLAW tools directory"
+- "Show me the contents of my PowerClaw tools directory"
 - "List all the files in my Documents folder"
 - "What PowerShell scripts are in my home directory?"
-- "Show me everything in C:\Users\user\PowerCLAW"
+- "Show me everything in C:\Users\user\PowerClaw"
 - "What's in my Desktop folder?"
 
 ### Read-FileContent
-- "Read my PowerCLAW config.json and explain my current settings"
+- "Read my PowerClaw config.json and explain my current settings"
 - "Read my trading journal from last week and summarize what I was watching"
 - "What does my PowerShell profile do?"
 - "Read the README in my Downloads folder and tell me what this project is"
-- "Read my PowerCLAW log and tell me which tools I've used most"
+- "Read my PowerClaw log and tell me which tools I've used most"
 - "What's in my .myjo config file?"
 - "Read this error log and tell me what went wrong"
-- "Summarize the last 50 lines of my PowerCLAW log"
+- "Summarize the last 50 lines of my PowerClaw log"
 - "Read my tools-manifest.json and tell me what tools are approved"
 - "What does Get-SystemSummary.ps1 actually do?"
 
 ### Remove-Files
 - "Find duplicate rekordbox zip files in my Downloads and delete the older one"
 - "Delete all zip files in my Downloads folder older than 6 months"
-- "Clean up the log files in my PowerCLAW folder"
+- "Clean up the log files in my PowerClaw folder"
 - "Find all files over 500MB in Downloads that I haven't opened in a year and delete them"
 
 ---
@@ -152,7 +152,7 @@ A reference of prompts to explore what PowerCLAW can do with its current 13 tool
 ## Personal Knowledge
 
 ### Search-MyJoNotes
-- "Search my devlog for anything about PowerCLAW"
+- "Search my devlog for anything about PowerClaw"
 - "What have I written about trading setups lately?"
 - "Find all journal entries tagged #bug"
 - "What did I write about in my health notebook this month?"
@@ -218,6 +218,6 @@ A reference of prompts to explore what PowerCLAW can do with its current 13 tool
 
 - "What tools do you have available?"
 - "What can you help me with?"
-- "How many files are in my PowerCLAW tools directory?"
-- "Read the PowerCLAW spec and tell me what Phase 3 involves"
-- "What's in my PowerCLAW log from today?"
+- "How many files are in my PowerClaw tools directory?"
+- "Read the PowerClaw spec and tell me what Phase 3 involves"
+- "What's in my PowerClaw log from today?"

@@ -29,7 +29,7 @@ function Fetch-WebPage {
     $pwBuild = Get-ChildItem (Join-Path $env:USERPROFILE ".powerclaw-playwright\PwHost\PwHost\bin\Debug") -Directory |
         Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
     if (-not (Test-Path $pwBuild)) {
-        throw "Playwright not set up. Run the one-time setup in the PowerCLAW README."
+        throw "Playwright not set up. Run the one-time setup in the PowerClaw README."
     }
 
     $alreadyLoaded = [System.AppDomain]::CurrentDomain.GetAssemblies() |

@@ -82,6 +82,6 @@ function Register-ClawTools {
         }
     }
 
-    Write-Host "[PowerCLAW] Registered $($registry.Count) tools: $($registry.Name -join ', ')"
+    Write-Host "[PowerClaw] Registered $($registry.Count) tools: $($registry.Name -join ', ')"
     return $registry
 }

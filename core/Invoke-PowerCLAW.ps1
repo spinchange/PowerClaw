@@ -1,6 +1,6 @@
-# core/Invoke-PowerCLAW.ps1
+# core/Invoke-PowerClaw.ps1
 
-function Invoke-PowerCLAW {
+function Invoke-PowerClaw {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory, Position = 0)]
@@ -13,7 +13,7 @@ function Invoke-PowerCLAW {
         [switch]$UseStub
     )
 
-    Write-Host "PowerCLAW v0.3" -ForegroundColor Cyan
+    Write-Host "PowerClaw v0.3" -ForegroundColor Cyan
     Write-Host "Prompt: $Prompt" -ForegroundColor Gray
     Write-Host ""
 

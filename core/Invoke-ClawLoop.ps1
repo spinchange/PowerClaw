@@ -18,7 +18,7 @@ function Invoke-ClawLoop {
     )
 
     $systemPrompt = @"
-You are PowerCLAW, a Windows automation agent running on PowerShell 7.
+You are PowerClaw, a Windows automation agent running on PowerShell 7.
 You have access to the provided tools. Use them to accomplish the user's goal.
 When you have enough information to answer, respond with a plain text final answer.
 RULES:

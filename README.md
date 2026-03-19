@@ -1,8 +1,8 @@
-# PowerCLAW
+# PowerClaw
 
 **PowerShell Command-Line Agentic Workbench**
 
-A Windows-native agentic automation framework built on PowerShell 7. You describe what you want in plain English — PowerCLAW uses Claude to pick the right tool, runs it on your machine, and returns a human-readable answer.
+A Windows-native agentic automation framework built on PowerShell 7. You describe what you want in plain English — PowerClaw uses Claude to pick the right tool, runs it on your machine, and returns a human-readable answer.
 
 Claude never generates raw PowerShell. It picks from a registry of approved, auditable tools you control.
 
@@ -18,8 +18,8 @@ Claude never generates raw PowerShell. It picks from a registry of approved, aud
 
 **1. Clone the repo**
 ```powershell
-git clone https://github.com/spinchange/PowerCLAW.git
-cd PowerCLAW
+git clone https://github.com/spinchange/PowerClaw.git
+cd PowerClaw
 ```
 
 **2. Set your API key**
@@ -31,12 +31,12 @@ To persist across sessions, add it to your PowerShell profile.
 
 **3. Import the module**
 ```powershell
-Import-Module .\PowerCLAW.psd1
+Import-Module .\PowerClaw.psd1
 ```
 
 **4. Run a prompt**
 ```powershell
-Invoke-PowerCLAW -Prompt "What are the top 5 processes by memory?"
+Invoke-PowerClaw -Prompt "What are the top 5 processes by memory?"
 ```
 
 ---
@@ -61,16 +61,16 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium
 
 ```powershell
 # Basic prompt
-Invoke-PowerCLAW -Prompt "Give me a full system health check"
+Invoke-PowerClaw -Prompt "Give me a full system health check"
 
 # See what Claude would do without running it
-Invoke-PowerCLAW -Plan -Prompt "Find the 10 biggest files in Downloads"
+Invoke-PowerClaw -Plan -Prompt "Find the 10 biggest files in Downloads"
 
 # Test without an API key
-Invoke-PowerCLAW -UseStub -Prompt "anything"
+Invoke-PowerClaw -UseStub -Prompt "anything"
 
 # Verbose — see full request/response JSON
-Invoke-PowerCLAW -Verbose -Prompt "What's eating my CPU?"
+Invoke-PowerClaw -Verbose -Prompt "What's eating my CPU?"
 ```
 
 ---
@@ -136,4 +136,4 @@ Risk levels: `ReadOnly` (runs freely) · `Write` (requires confirmation prompt)
 
 ---
 
-*Spec: PowerCLAW-SPEC-v03.md · Built with PowerShell 7 + Claude API*
+*Spec: PowerClaw-SPEC-v03.md · Built with PowerShell 7 + Claude API*
