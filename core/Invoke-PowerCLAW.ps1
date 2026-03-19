@@ -17,6 +17,8 @@ function Invoke-PowerClaw {
     Write-Host "Prompt: $Prompt" -ForegroundColor Gray
     Write-Host ""
 
+    $config = Get-Content (Join-Path $PSScriptRoot '..\config.json') -Raw | ConvertFrom-Json
+
     $tools = Register-ClawTools
     if ($tools.Count -eq 0) {
         Write-Error "No approved tools found. Check tools-manifest.json."
@@ -26,6 +28,7 @@ function Invoke-PowerClaw {
     $result = Invoke-ClawLoop `
         -UserGoal $Prompt `
         -Tools $tools `
+        -MaxSteps $config.max_steps `
         -DryRun:$DryRun `
         -Plan:$Plan `
         -UseStub:$UseStub

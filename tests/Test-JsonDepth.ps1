@@ -109,6 +109,31 @@ Assert-Contains "Message array: tool_use type present"   $json '"tool_use"'
 Assert-Contains "Message array: tool_use_id present"     $json '"tool_use_id"'
 Assert-Contains "Message array: tool input SortBy"       $json '"SortBy"'
 
+# ── Test falsy-but-valid metadata (regression for ConvertTo-ToolSchema fix) ──
+Write-Host "`n── Falsy-but-valid schema metadata ──" -ForegroundColor Cyan
+
+$root = Split-Path $PSScriptRoot -Parent
+. (Join-Path $root "registry\ConvertTo-ToolSchema.ps1")
+
+$testTool = [PSCustomObject]@{
+    Name        = "Test-FalsyDefaults"
+    Description = "Tool with falsy but valid parameter metadata"
+    Parameters  = @(
+        [PSCustomObject]@{ Name = "MinSize"; Type = "Int32";   Required = $false; Min = 0;      Max = $null;  Default = $null;  Enum = $null }
+        [PSCustomObject]@{ Name = "Enabled"; Type = "Boolean"; Required = $false; Min = $null;  Max = $null;  Default = $false; Enum = $null }
+        [PSCustomObject]@{ Name = "Label";   Type = "String";  Required = $false; Min = $null;  Max = $null;  Default = "";     Enum = $null }
+    )
+}
+
+$schema = ConvertTo-ClaudeToolSchema $testTool
+$json = $schema | ConvertTo-Json -Depth 10
+
+Assert-Contains    "Falsy Min=0 emits minimum:0"        $json '"minimum": 0'
+Assert-Contains    "Falsy Default=false emits default"  $json '"default": false'
+Assert-Contains    "Falsy Default=empty emits default"  $json '"default": ""'
+Assert-NotContains "Null Min does not emit minimum"     $json '"minimum": null'
+Assert-NotContains "Null Max does not emit maximum"     $json '"maximum": null'
+
 # ── Summary ──
 Write-Host "`n── Results: $pass passed, $fail failed ──" -ForegroundColor $(if ($fail -eq 0) { 'Green' } else { 'Red' })
 if ($fail -gt 0) { exit 1 }

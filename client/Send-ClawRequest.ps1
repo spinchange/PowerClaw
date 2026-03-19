@@ -62,13 +62,17 @@ function Send-ClawRequest {
             -TimeoutSec 60
     }
     catch {
-        $status = $_.Exception.Response.StatusCode.value__
-        $detail = $_.ErrorDetails.Message
-        switch ($status) {
-            401     { throw "Invalid API key. Check `$env:$($config.api_key_env)." }
-            429     { throw "Rate limited. Wait a moment and try again." }
-            529     { throw "Claude API is overloaded. Try again shortly." }
-            default { throw "API call failed (HTTP $status): $detail" }
+        if ($_.Exception.Response) {
+            $status = $_.Exception.Response.StatusCode.value__
+            $detail = $_.ErrorDetails.Message
+            switch ($status) {
+                401     { throw "Invalid API key. Check `$env:$($config.api_key_env)." }
+                429     { throw "Rate limited. Wait a moment and try again." }
+                529     { throw "Claude API is overloaded. Try again shortly." }
+                default { throw "API call failed (HTTP $status): $detail" }
+            }
+        } else {
+            throw "API call failed (no HTTP response): $($_.Exception.Message)"
         }
     }
 

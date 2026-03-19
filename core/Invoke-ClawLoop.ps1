@@ -35,6 +35,10 @@ ENVIRONMENT:
 - Computer: $env:COMPUTERNAME
 "@
 
+    $config = Get-Content (Join-Path $PSScriptRoot '..\config.json') -Raw | ConvertFrom-Json
+    $maxOutputChars = [int]$config.max_output_chars
+    $logPath = Join-Path $PSScriptRoot "..\$($config.log_file)"
+
     $toolSchemas = $Tools | ForEach-Object { ConvertTo-ClaudeToolSchema $_ }
     $messages = @(@{ role = "user"; content = $UserGoal })
 
@@ -81,16 +85,18 @@ ENVIRONMENT:
                 continue
             }
 
-            # ── Plan mode: print what would run and stop ──
+            # ── Plan mode: print step 1 and stop ──
+            # Note: -Plan shows only the first action Claude would take, not a full
+            # multi-step plan. For prompts that require chaining, only step 1 is shown.
             if ($Plan) {
-                Write-Host "`n[Plan]" -ForegroundColor Cyan
+                Write-Host "`n[Plan] First action Claude would take:" -ForegroundColor Cyan
                 Write-Host "  Tool: $toolName" -ForegroundColor White
                 Write-Host "  Risk: $($tool.Risk)" -ForegroundColor $(if ($tool.Risk -eq 'ReadOnly') { 'Green' } else { 'Yellow' })
                 Write-Host "  Args:" -ForegroundColor White
                 foreach ($key in $toolInput.Keys) {
                     Write-Host "    $key = $($toolInput[$key])" -ForegroundColor Gray
                 }
-                Write-Host "`nRun without -Plan to execute." -ForegroundColor DarkGray
+                Write-Host "`nRun without -Plan to execute all steps." -ForegroundColor DarkGray
                 return $null
             }
 
@@ -121,9 +127,9 @@ ENVIRONMENT:
                         $splatArgs[$key] = $toolInput[$key]
                     }
                     $toolResult = & $tool.ScriptBlock @splatArgs | Out-String
-                    if ($toolResult.Length -gt 12000) {
-                        Write-Warning "Output truncated from $($toolResult.Length) to 12000 chars"
-                        $toolResult = $toolResult.Substring(0, 12000) + "`n... (truncated)"
+                    if ($toolResult.Length -gt $maxOutputChars) {
+                        Write-Warning "Output truncated from $($toolResult.Length) to $maxOutputChars chars"
+                        $toolResult = $toolResult.Substring(0, $maxOutputChars) + "`n... (truncated)"
                     }
                 }
                 catch {
@@ -142,7 +148,6 @@ ENVIRONMENT:
                 ResultLen = $toolResult.Length
                 DryRun    = $DryRun.IsPresent
             } | ConvertTo-Json -Depth 3 -Compress
-            $logPath = Join-Path $PSScriptRoot '..\powerclaw.log'
             Add-Content -Path $logPath -Value $logEntry -ErrorAction SilentlyContinue
 
             # Feed result back — format for Claude tool_result

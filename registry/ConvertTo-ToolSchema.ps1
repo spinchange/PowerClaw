@@ -9,10 +9,10 @@ function ConvertTo-ClaudeToolSchema {
 
     foreach ($p in $Tool.Parameters) {
         $prop = @{ type = (ConvertTo-JsonType $p.Type) }
-        if ($p.Enum)    { $prop.enum = $p.Enum }
-        if ($p.Min)     { $prop.minimum = $p.Min }
-        if ($p.Max)     { $prop.maximum = $p.Max }
-        if ($p.Default) { $prop.default = $p.Default }
+        if ($p.Enum)              { $prop.enum = $p.Enum }
+        if ($null -ne $p.Min)     { $prop.minimum = $p.Min }
+        if ($null -ne $p.Max)     { $prop.maximum = $p.Max }
+        if ($null -ne $p.Default) { $prop.default = $p.Default }
         $properties[$p.Name] = $prop
         if ($p.Required) { $required += $p.Name }
     }
