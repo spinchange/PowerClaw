@@ -1,6 +1,6 @@
 # PowerClaw
 
-**PowerShell Command-Line Agentic Workbench**
+**PowerShell Command-Line Agentic Workbench** &nbsp;·&nbsp; [🌐 spinchange.github.io/PowerClaw](https://spinchange.github.io/PowerClaw/)
 
 A Windows-native agentic automation framework built on PowerShell 7. You describe what you want in plain English — PowerClaw uses Claude to pick the right tool, runs it on your machine, and returns a human-readable answer.
 
