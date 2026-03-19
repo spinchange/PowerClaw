@@ -174,6 +174,54 @@ Assert-Contains    "Registry AST: MinSize=0 extracted and emitted"          $jso
 Assert-Contains    "Registry AST: Aggregate=false extracted and emitted"    $json '"default": false'
 Assert-Contains    "Registry AST: Label=empty string extracted and emitted" $json '"default": ""'
 
+# Test non-literal (expression) defaults fall back to AST text
+Write-Host "`n── Falsy defaults: non-literal expression fallback ──" -ForegroundColor Cyan
+
+$tmpExpr = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.ps1'
+Set-Content $tmpExpr @'
+function Test-ExpressionDefaultTool {
+    [CmdletBinding()]
+    param(
+        [string]$Scope = $env:USERPROFILE
+    )
+}
+'@
+
+. $tmpExpr
+$funcInfoExpr = Get-Command -Name "Test-ExpressionDefaultTool"
+$fileAstExpr  = [System.Management.Automation.Language.Parser]::ParseFile($tmpExpr, [ref]$null, [ref]$null)
+$funcAstExpr  = $fileAstExpr.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq "Test-ExpressionDefaultTool"
+}, $true)
+$astDefaultsExpr = @{}
+if ($funcAstExpr -and $funcAstExpr.Body.ParamBlock) {
+    foreach ($astParam in $funcAstExpr.Body.ParamBlock.Parameters) {
+        $pName = $astParam.Name.VariablePath.UserPath
+        if ($null -ne $astParam.DefaultValue) {
+            try {
+                $astDefaultsExpr[$pName] = $astParam.DefaultValue.SafeGetValue()
+            } catch {
+                $astDefaultsExpr[$pName] = $astParam.DefaultValue.Extent.Text
+            }
+        }
+    }
+}
+Remove-Item $tmpExpr -ErrorAction SilentlyContinue
+
+$exprExtracted = foreach ($p in $funcInfoExpr.Parameters.Values) {
+    if ($p.Name -in $skip) { continue }
+    $pi = @{ Name = $p.Name; Type = $p.ParameterType.Name; Required = $false }
+    if ($astDefaultsExpr.ContainsKey($p.Name)) { $pi.Default = $astDefaultsExpr[$p.Name] }
+    [PSCustomObject]$pi
+}
+$exprTool   = [PSCustomObject]@{ Name = "Test-ExpressionDefaultTool"; Description = "expr default test"; Parameters = @($exprExtracted) }
+$exprSchema = ConvertTo-ClaudeToolSchema $exprTool
+$exprJson   = $exprSchema | ConvertTo-Json -Depth 10
+
+Assert-Contains "Expression default: Scope emits AST text fallback" $exprJson '$env:USERPROFILE'
+
 # Also verify the serializer layer still works correctly in isolation
 Write-Host "`n── Falsy defaults: serializer layer ──" -ForegroundColor Cyan
 

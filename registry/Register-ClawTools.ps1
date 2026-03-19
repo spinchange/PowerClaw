@@ -56,7 +56,13 @@ function Register-ClawTools {
             foreach ($astParam in $funcAst.Body.ParamBlock.Parameters) {
                 $pName = $astParam.Name.VariablePath.UserPath
                 if ($null -ne $astParam.DefaultValue) {
-                    try { $astDefaults[$pName] = $astParam.DefaultValue.SafeGetValue() } catch {}
+                    try {
+                        $astDefaults[$pName] = $astParam.DefaultValue.SafeGetValue()
+                    } catch {
+                        # Non-literal default (e.g. $env:USERPROFILE) — store the expression
+                        # text so the model sees the intent even without the runtime value
+                        $astDefaults[$pName] = $astParam.DefaultValue.Extent.Text
+                    }
                 }
             }
         }
