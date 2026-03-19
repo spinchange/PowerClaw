@@ -1,0 +1,19 @@
+{
+  "approved_tools": [
+    "Get-TopProcesses",
+    "Get-DirectoryListing",
+    "Get-EventLogEntries",
+    "Get-SystemSummary",
+    "Read-FileContent",
+    "Search-Files",
+    "Fetch-WebPage",
+    "Get-NetworkStatus",
+    "Get-StorageStatus",
+    "Get-SystemSummary",
+    "Get-ServiceStatus",
+    "Search-MyJoNotes",
+    "Search-MnVault",
+    "Remove-Files"
+  ],
+  "disabled_tools": []
+}

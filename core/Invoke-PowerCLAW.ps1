@@ -1,0 +1,36 @@
+# core/Invoke-PowerCLAW.ps1
+
+function Invoke-PowerCLAW {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Prompt,
+
+        [switch]$DryRun,
+
+        [switch]$Plan,
+
+        [switch]$UseStub
+    )
+
+    Write-Host "PowerCLAW v0.3" -ForegroundColor Cyan
+    Write-Host "Prompt: $Prompt" -ForegroundColor Gray
+    Write-Host ""
+
+    $tools = Register-ClawTools
+    if ($tools.Count -eq 0) {
+        Write-Error "No approved tools found. Check tools-manifest.json."
+        return
+    }
+
+    $result = Invoke-ClawLoop `
+        -UserGoal $Prompt `
+        -Tools $tools `
+        -DryRun:$DryRun `
+        -Plan:$Plan `
+        -UseStub:$UseStub
+
+    if ($result -and -not $Plan) {
+        Write-Host "`n$result"
+    }
+}

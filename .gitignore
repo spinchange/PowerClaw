@@ -1,0 +1,11 @@
+# Runtime log — contains tool call history with local paths and args
+powerclaw.log
+
+# Local config overrides (if you ever add machine-specific settings)
+config.local.json
+
+# Playwright browser binaries (installed separately, not part of the repo)
+.playwright/
+
+# PowerShell temp files
+*.ps1xml
