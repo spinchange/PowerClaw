@@ -137,24 +137,45 @@
 
   .terminal-bar {
     background: #1a2a44;
-    padding: 0.5rem 1rem;
+    padding: 0 0 0 0.75rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
     border-bottom: 1px solid var(--ps-border);
+    height: 32px;
   }
 
-  .dot { width: 10px; height: 10px; border-radius: 50%; }
-  .dot-red    { background: #ff5f57; }
-  .dot-yellow { background: #febc2e; }
-  .dot-green  { background: #28c840; }
+  .terminal-icon {
+    font-size: 0.8rem;
+    color: var(--ps-cyan);
+    line-height: 1;
+  }
 
   .terminal-title {
     flex: 1;
-    text-align: center;
     font-size: 0.75rem;
     color: var(--ps-dim);
   }
+
+  .win-controls {
+    display: flex;
+    height: 100%;
+  }
+
+  .win-btn {
+    width: 46px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    color: var(--ps-dim);
+    cursor: default;
+    transition: background 0.15s;
+  }
+
+  .win-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+  .win-btn.close:hover { background: #c42b1c; color: #fff; }
 
   .terminal-body {
     padding: 1.25rem 1.5rem;
@@ -422,10 +443,13 @@
 <div class="terminal-wrap">
   <div class="terminal">
     <div class="terminal-bar">
-      <div class="dot dot-red"></div>
-      <div class="dot dot-yellow"></div>
-      <div class="dot dot-green"></div>
-      <div class="terminal-title">Windows PowerShell</div>
+      <span class="terminal-icon">⚡</span>
+      <span class="terminal-title">Windows PowerShell</span>
+      <div class="win-controls">
+        <div class="win-btn">&#x2212;</div>
+        <div class="win-btn">&#x25A1;</div>
+        <div class="win-btn close">&#x2715;</div>
+      </div>
     </div>
     <div class="terminal-body" id="terminal-body">
       <div><span class="t-prompt">PS C:\Users\Chris\PowerClaw&gt;</span> <span class="t-cmd">Invoke-PowerClaw -Prompt <span style="color:var(--ps-green)">"Give me a full system health check"</span></span></div>
