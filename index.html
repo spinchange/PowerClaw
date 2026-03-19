@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PowerClaw — PowerShell Agentic Workbench</title>
+<style>
+  :root {
+    --ps-blue:    #012456;
+    --ps-blue2:   #0d3a7a;
+    --ps-cyan:    #00b4d8;
+    --ps-yellow:  #f9e64f;
+    --ps-green:   #3bc463;
+    --ps-red:     #f44747;
+    --ps-white:   #eeedf0;
+    --ps-gray:    #9da5b4;
+    --ps-dim:     #4a5568;
+    --ps-border:  #1e3a5f;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--ps-blue);
+    color: var(--ps-white);
+    font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  a { color: var(--ps-cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ── Nav ── */
+  nav {
+    border-bottom: 1px solid var(--ps-border);
+    padding: 1rem 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(1,36,86,0.95);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+  }
+
+  .nav-brand {
+    font-size: 1.1rem;
+    font-weight: bold;
+  }
+
+  .nav-brand span.ps { color: var(--ps-cyan); }
+  .nav-brand span.claw { color: var(--ps-yellow); }
+
+  .nav-links { display: flex; gap: 2rem; font-size: 0.85rem; }
+  .nav-links a { color: var(--ps-gray); }
+  .nav-links a:hover { color: var(--ps-white); text-decoration: none; }
+
+  /* ── Hero ── */
+  .hero {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 5rem 2rem 3rem;
+    text-align: center;
+  }
+
+  .hero-badge {
+    display: inline-block;
+    background: var(--ps-border);
+    color: var(--ps-cyan);
+    font-size: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 2px;
+    margin-bottom: 1.5rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .hero h1 {
+    font-size: clamp(2rem, 6vw, 3.5rem);
+    line-height: 1.1;
+    margin-bottom: 1rem;
+  }
+
+  .hero h1 .ps  { color: var(--ps-cyan); }
+  .hero h1 .claw { color: var(--ps-yellow); }
+
+  .hero-sub {
+    font-size: 1.1rem;
+    color: var(--ps-gray);
+    max-width: 600px;
+    margin: 0 auto 2.5rem;
+  }
+
+  .hero-sub strong { color: var(--ps-white); }
+
+  .btn-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-block;
+    padding: 0.65rem 1.5rem;
+    font-family: inherit;
+    font-size: 0.9rem;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+  .btn:hover { opacity: 0.85; text-decoration: none; }
+
+  .btn-primary {
+    background: var(--ps-cyan);
+    color: var(--ps-blue);
+    font-weight: bold;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--ps-white);
+    border: 1px solid var(--ps-border);
+  }
+
+  /* ── Terminal ── */
+  .terminal-wrap {
+    max-width: 800px;
+    margin: 4rem auto 0;
+    padding: 0 2rem;
+  }
+
+  .terminal {
+    background: #0a1628;
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  .terminal-bar {
+    background: #1a2a44;
+    padding: 0.5rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid var(--ps-border);
+  }
+
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-red    { background: #ff5f57; }
+  .dot-yellow { background: #febc2e; }
+  .dot-green  { background: #28c840; }
+
+  .terminal-title {
+    flex: 1;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--ps-dim);
+  }
+
+  .terminal-body {
+    padding: 1.25rem 1.5rem;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    min-height: 280px;
+  }
+
+  .t-prompt { color: var(--ps-cyan); }
+  .t-cmd    { color: var(--ps-white); }
+  .t-out    { color: var(--ps-gray); }
+  .t-green  { color: var(--ps-green); }
+  .t-yellow { color: var(--ps-yellow); }
+  .t-red    { color: var(--ps-red); }
+  .t-cyan   { color: var(--ps-cyan); }
+  .t-dim    { color: var(--ps-dim); }
+
+  .blink {
+    animation: blink 1s step-end infinite;
+    color: var(--ps-white);
+  }
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+
+  /* ── Sections ── */
+  section {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 5rem 2rem;
+  }
+
+  .section-label {
+    font-size: 0.7rem;
+    color: var(--ps-cyan);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 0.5rem;
+  }
+
+  h2 {
+    font-size: 1.75rem;
+    margin-bottom: 0.5rem;
+    color: var(--ps-white);
+  }
+
+  .section-sub {
+    color: var(--ps-gray);
+    margin-bottom: 3rem;
+    max-width: 560px;
+  }
+
+  hr.divider {
+    border: none;
+    border-top: 1px solid var(--ps-border);
+    margin: 0;
+  }
+
+  /* ── Principles ── */
+  .principles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .principle {
+    background: #0a1628;
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    padding: 1.5rem;
+  }
+
+  .principle-icon {
+    font-size: 1.4rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .principle h3 {
+    font-size: 0.95rem;
+    color: var(--ps-yellow);
+    margin-bottom: 0.5rem;
+  }
+
+  .principle p {
+    font-size: 0.82rem;
+    color: var(--ps-gray);
+    line-height: 1.6;
+  }
+
+  /* ── Tools ── */
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .tool {
+    background: #0a1628;
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    padding: 1rem 1.25rem;
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .tool-risk {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 2px;
+    white-space: nowrap;
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+  }
+
+  .risk-read  { background: rgba(59,196,99,0.15);  color: var(--ps-green); border: 1px solid rgba(59,196,99,0.3);  }
+  .risk-write { background: rgba(249,230,79,0.1);  color: var(--ps-yellow); border: 1px solid rgba(249,230,79,0.3); }
+
+  .tool-info h3 {
+    font-size: 0.88rem;
+    color: var(--ps-cyan);
+    margin-bottom: 0.25rem;
+  }
+
+  .tool-info p {
+    font-size: 0.78rem;
+    color: var(--ps-gray);
+    line-height: 1.5;
+  }
+
+  .tool-cat {
+    font-size: 0.68rem;
+    color: var(--ps-dim);
+    margin-top: 0.25rem;
+  }
+
+  /* ── Install ── */
+  .install-steps { display: flex; flex-direction: column; gap: 1.5rem; }
+
+  .step {
+    display: grid;
+    grid-template-columns: 2rem 1fr;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .step-num {
+    width: 2rem;
+    height: 2rem;
+    background: var(--ps-border);
+    color: var(--ps-cyan);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: bold;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+  }
+
+  .step-content h3 {
+    font-size: 0.9rem;
+    color: var(--ps-white);
+    margin-bottom: 0.5rem;
+  }
+
+  pre {
+    background: #0a1628;
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    padding: 0.75rem 1rem;
+    font-size: 0.8rem;
+    overflow-x: auto;
+    color: var(--ps-yellow);
+  }
+
+  pre .comment { color: var(--ps-dim); }
+  pre .string  { color: var(--ps-green); }
+
+  /* ── Prompts ── */
+  .prompts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .prompt-group h3 {
+    font-size: 0.75rem;
+    color: var(--ps-cyan);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--ps-border);
+  }
+
+  .prompt-group ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .prompt-group li {
+    font-size: 0.78rem;
+    color: var(--ps-gray);
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--ps-border);
+    line-height: 1.4;
+  }
+
+  .prompt-group li:hover {
+    border-color: var(--ps-cyan);
+    color: var(--ps-white);
+  }
+
+  /* ── Footer ── */
+  footer {
+    border-top: 1px solid var(--ps-border);
+    padding: 2rem;
+    text-align: center;
+    font-size: 0.78rem;
+    color: var(--ps-dim);
+  }
+
+  footer a { color: var(--ps-gray); }
+
+  /* ── Responsive ── */
+  @media (max-width: 600px) {
+    .nav-links { display: none; }
+    .hero { padding: 3rem 1.5rem 2rem; }
+    section { padding: 3rem 1.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <div class="nav-brand">
+    <span class="ps">Power</span><span class="claw">Claw</span>
+  </div>
+  <div class="nav-links">
+    <a href="#tools">Tools</a>
+    <a href="#install">Install</a>
+    <a href="#prompts">Prompts</a>
+    <a href="https://github.com/spinchange/PowerClaw">GitHub</a>
+  </div>
+</nav>
+
+<!-- Hero -->
+<div class="hero">
+  <div class="hero-badge">PowerShell · Claude API · Windows-Native</div>
+  <h1><span class="ps">Power</span><span class="claw">Claw</span></h1>
+  <p class="hero-sub">
+    A Windows-native agentic workbench built on PowerShell 7.<br>
+    <strong>Describe what you want. Claude picks the tool. PowerShell runs it.</strong>
+  </p>
+  <div class="btn-group">
+    <a class="btn btn-primary" href="#install">Get Started</a>
+    <a class="btn btn-secondary" href="https://github.com/spinchange/PowerClaw">View on GitHub</a>
+  </div>
+</div>
+
+<!-- Terminal -->
+<div class="terminal-wrap">
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+      <div class="terminal-title">Windows PowerShell</div>
+    </div>
+    <div class="terminal-body" id="terminal-body">
+      <div><span class="t-prompt">PS C:\Users\Chris\PowerClaw&gt;</span> <span class="t-cmd">Invoke-PowerClaw -Prompt <span style="color:var(--ps-green)">"Give me a full system health check"</span></span></div>
+      <br>
+      <div><span class="t-cyan">PowerClaw v0.3</span></div>
+      <div><span class="t-dim">Prompt: Give me a full system health check</span></div>
+      <br>
+      <div><span class="t-dim">[PowerClaw] Registered 13 tools: Fetch-WebPage, Get-EventLogEntries, Get-NetworkStatus...</span></div>
+      <br>
+      <div><span class="t-dim">[Step 1/8]</span></div>
+      <div><span class="t-cyan">[Executing]</span> Get-NetworkStatus</div>
+      <div><span class="t-dim">[Step 2/8]</span></div>
+      <div><span class="t-cyan">[Executing]</span> Get-StorageStatus</div>
+      <div><span class="t-dim">[Step 3/8]</span></div>
+      <div><span class="t-cyan">[Executing]</span> Get-EventLogEntries</div>
+      <div><span class="t-dim">[Step 4/8]</span></div>
+      <br>
+      <div><span class="t-green">[Answer]</span></div>
+      <br>
+      <div><span class="t-white">Your system is healthy. Drive C: is 76% full (57 GB free). External</span></div>
+      <div><span class="t-white">IP: 98.x.x.x. No critical errors in the last 24h — only a routine</span></div>
+      <div><span class="t-white">TPM warning and a stopped Everything service (auto-start, non-critical).</span></div>
+      <div><span class="t-white">Network adapter running at 585 Mbps on ethernet.</span></div>
+      <br>
+      <div><span class="t-prompt">PS C:\Users\Chris\PowerClaw&gt;</span> <span class="blink">█</span></div>
+    </div>
+  </div>
+</div>
+
+<hr class="divider" style="margin-top:5rem">
+
+<!-- Principles -->
+<section>
+  <div class="section-label"># Design</div>
+  <h2>How it works</h2>
+  <p class="section-sub">Six principles that make PowerClaw different from asking Claude to write PowerShell directly.</p>
+
+  <div class="principles">
+    <div class="principle">
+      <div class="principle-icon">🗂️</div>
+      <h3>Tool registry, not command generation</h3>
+      <p>Claude picks from a known, approved list of tools. It never writes raw PowerShell. The blast radius of any action is defined at design time, not at query time.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🔒</div>
+      <h3>Discovery is not trust</h3>
+      <p>Tools are auto-discovered from disk but only tools explicitly listed in <code>tools-manifest.json</code> become executable. Everything else is ignored.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">👁️</div>
+      <h3>Write ops require confirmation</h3>
+      <p>Any tool marked <code>Write</code> risk pauses and shows you exactly what will run before executing. You type Y or N.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🪟</div>
+      <h3>Windows-first</h3>
+      <p>COM, WMI, Task Scheduler, Windows Search index, native Office object models. Not a Linux tool ported to Windows.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🔍</div>
+      <h3>Every run is inspectable</h3>
+      <p>Plans, tool calls, outputs, and errors are logged. Use <code>-Verbose</code> to see the full request/response JSON. Use <code>-Plan</code> to preview without running.</p>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🧩</div>
+      <h3>Drop-in tools</h3>
+      <p>Add a <code>.ps1</code> file to <code>tools/</code> with <code>.CLAW_*</code> metadata and add it to the manifest. No core changes needed.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Tools -->
+<section id="tools">
+  <div class="section-label"># Tools</div>
+  <h2>13 built-in tools</h2>
+  <p class="section-sub">Covering system health, file system, networking, event logs, web, and personal knowledge.</p>
+
+  <div class="tools-grid">
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-SystemSummary</h3>
+        <p>CPU load, RAM usage, uptime, top processes by CPU and memory.</p>
+        <div class="tool-cat">SystemInfo</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-TopProcesses</h3>
+        <p>Processes sorted by CPU or memory usage with configurable count.</p>
+        <div class="tool-cat">SystemInfo</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-EventLogEntries</h3>
+        <p>Query System, Application, or Security event logs for errors and warnings.</p>
+        <div class="tool-cat">SystemInfo</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-ServiceStatus</h3>
+        <p>Check Windows services — running, stopped, or failed auto-start services.</p>
+        <div class="tool-cat">SystemInfo</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-NetworkStatus</h3>
+        <p>Active interfaces, TCP connections, DNS servers, external IP.</p>
+        <div class="tool-cat">Network</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-StorageStatus</h3>
+        <p>Disk usage across all drives, largest folders by size.</p>
+        <div class="tool-cat">SystemInfo</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Search-Files</h3>
+        <p>Windows Search index queries — by name, kind, size, date. Much faster than disk scan.</p>
+        <div class="tool-cat">Filesystem</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-DirectoryListing</h3>
+        <p>List files and folders in a directory with optional filtering.</p>
+        <div class="tool-cat">Filesystem</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Read-FileContent</h3>
+        <p>Read any file and let Claude reason about it — logs, configs, scripts, journals.</p>
+        <div class="tool-cat">Filesystem</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-write">Write</div>
+      <div class="tool-info">
+        <h3>Remove-Files</h3>
+        <p>Delete specific file paths. Sends to Recycle Bin by default. Requires confirmation.</p>
+        <div class="tool-cat">Filesystem</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Fetch-WebPage</h3>
+        <p>Fetch any URL via Playwright and return clean readable text. Handles JS-rendered pages.</p>
+        <div class="tool-cat">Web</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Search-MyJoNotes</h3>
+        <p>Full-text search across MyJo journal notebooks by keyword, tag, or date range.</p>
+        <div class="tool-cat">Personal</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Search-MnVault</h3>
+        <p>Search markdown notes in an mnvault knowledge base by keyword or tag.</p>
+        <div class="tool-cat">Personal</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Install -->
+<section id="install">
+  <div class="section-label"># Setup</div>
+  <h2>Get started</h2>
+  <p class="section-sub">Requires PowerShell 7+ and an Anthropic API key.</p>
+
+  <div class="install-steps">
+
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h3>Clone the repo</h3>
+        <pre><span class="comment"># Clone and enter the directory</span>
+git clone https://github.com/spinchange/PowerClaw.git
+cd PowerClaw</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h3>Set your API key</h3>
+        <pre><span class="comment"># Set for this session</span>
+$env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
+
+<span class="comment"># Or add to your PowerShell profile to persist</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h3>Import and run</h3>
+        <pre>Import-Module .\PowerClaw.psd1
+Invoke-PowerClaw -Prompt <span class="string">"What's eating my CPU?"</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Optional: Playwright (for Fetch-WebPage)</h3>
+        <pre><span class="comment"># One-time browser install</span>
+$dir = <span class="string">"$env:USERPROFILE\.powerclaw-playwright\PwHost"</span>
+mkdir $dir -Force; cd $dir
+dotnet new console -n PwHost --framework net10.0 --force
+cd PwHost
+dotnet add package Microsoft.Playwright
+dotnet build
+pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Prompts -->
+<section id="prompts">
+  <div class="section-label"># Examples</div>
+  <h2>What to ask</h2>
+  <p class="section-sub">Plain English. Claude figures out which tool — and what arguments — to use.</p>
+
+  <div class="prompts-grid">
+
+    <div class="prompt-group">
+      <h3>System Health</h3>
+      <ul>
+        <li>"Give me a full system health check"</li>
+        <li>"Is my machine under heavy load?"</li>
+        <li>"What's eating all my CPU?"</li>
+        <li>"Which services have stopped unexpectedly?"</li>
+        <li>"What errors happened in the last 24 hours?"</li>
+        <li>"When did my machine last reboot?"</li>
+      </ul>
+    </div>
+
+    <div class="prompt-group">
+      <h3>Files &amp; Storage</h3>
+      <ul>
+        <li>"Find the 10 biggest files on my system"</li>
+        <li>"How much video content do I have?"</li>
+        <li>"What did I download last week?"</li>
+        <li>"Find all zip files over 100MB"</li>
+        <li>"Which drive is closest to full?"</li>
+        <li>"Delete the duplicate installer in Downloads"</li>
+      </ul>
+    </div>
+
+    <div class="prompt-group">
+      <h3>Network</h3>
+      <ul>
+        <li>"What's my external IP?"</li>
+        <li>"What's connected to my network right now?"</li>
+        <li>"Is anything making unexpected connections?"</li>
+        <li>"What DNS servers am I using?"</li>
+      </ul>
+    </div>
+
+    <div class="prompt-group">
+      <h3>Web &amp; Files</h3>
+      <ul>
+        <li>"Summarize the top stories on Hacker News"</li>
+        <li>"Fetch this article and summarize it: [URL]"</li>
+        <li>"Read my config.json and explain my settings"</li>
+        <li>"What does this log file say went wrong?"</li>
+      </ul>
+    </div>
+
+    <div class="prompt-group">
+      <h3>Multi-tool Chains</h3>
+      <ul>
+        <li>"Is my machine healthy? Full diagnostic."</li>
+        <li>"Find big old files in Downloads and clean them up"</li>
+        <li>"Check disk errors in event log, then show storage status"</li>
+        <li>"What process is spiking CPU and is it in the event log?"</li>
+      </ul>
+    </div>
+
+    <div class="prompt-group">
+      <h3>Flags</h3>
+      <ul>
+        <li><code>-Plan</code> &nbsp;— preview without running</li>
+        <li><code>-DryRun</code> — skip write tools</li>
+        <li><code>-Verbose</code> — see raw API JSON</li>
+        <li><code>-UseStub</code> — test without API key</li>
+      </ul>
+    </div>
+
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- Footer -->
+<footer>
+  <p>
+    <a href="https://github.com/spinchange/PowerClaw">spinchange/PowerClaw</a>
+    &nbsp;·&nbsp;
+    Built with PowerShell 7 + Claude API
+    &nbsp;·&nbsp;
+    <a href="https://github.com/spinchange/PowerClaw/blob/master/README.md">Docs</a>
+  </p>
+</footer>
+
+</body>
+</html>
