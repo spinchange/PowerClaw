@@ -6,7 +6,9 @@ $moduleRoot = $PSScriptRoot
 . "$moduleRoot\core\Invoke-PowerClaw.ps1"
 . "$moduleRoot\core\Invoke-ClawLoop.ps1"
 
-# Client
+# Client — providers must load before the dispatcher
+. "$moduleRoot\client\providers\Send-ClaudeRequest.ps1"
+. "$moduleRoot\client\providers\Send-OpenAiRequest.ps1"
 . "$moduleRoot\client\Send-ClawRequest.ps1"
 
 # Registry
