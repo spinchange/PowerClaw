@@ -22,7 +22,7 @@ function Get-EventLogEntries {
         [int]$HoursBack = 24,
 
         [ValidateRange(1, 100)]
-        [int]$Limit = 25
+        [int]$Limit = 10
     )
 
     $after = (Get-Date).AddHours(-$HoursBack)

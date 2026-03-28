@@ -13,7 +13,8 @@
     "Get-ServiceStatus",
     "Search-MyJoNotes",
     "Search-MnVault",
-    "Remove-Files"
+    "Remove-Files",
+    "Get-NetworkUsage"
   ],
   "disabled_tools": []
 }

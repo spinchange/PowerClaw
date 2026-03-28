@@ -25,6 +25,8 @@ RULES:
 - Only call the provided tools. Never generate raw PowerShell.
 - Prefer read-only operations unless the user explicitly requests changes.
 - If a tool fails, report the error as your final answer. Do not retry with a different path or arguments.
+- Use the minimum number of tool calls necessary. One tool call is usually enough — answer immediately from its output rather than gathering more data from additional tools.
+- Do not call the same tool twice with different parameters unless the user explicitly asked for multiple queries.
 
 ENVIRONMENT:
 - Username: $env:USERNAME
@@ -129,7 +131,7 @@ ENVIRONMENT:
                     $toolResult = & $tool.ScriptBlock @splatArgs | Out-String
                     if ($toolResult.Length -gt $maxOutputChars) {
                         Write-Warning "Output truncated from $($toolResult.Length) to $maxOutputChars chars"
-                        $toolResult = $toolResult.Substring(0, $maxOutputChars) + "`n... (truncated)"
+                        $toolResult = $toolResult.Substring(0, $maxOutputChars) + "`n... (truncated — output limit reached. Summarize what you have above as your final answer. Do not call this tool again.)"
                     }
                 }
                 catch {
@@ -168,6 +170,9 @@ ENVIRONMENT:
                     content     = $toolResult
                 })
             }
+
+            # Brief pause between steps to avoid rate limiting on rapid multi-tool prompts
+            Start-Sleep -Seconds 1
         }
     }
 
