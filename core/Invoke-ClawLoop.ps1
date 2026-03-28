@@ -47,24 +47,40 @@ ENVIRONMENT:
     for ($step = 1; $step -le $MaxSteps; $step++) {
         Write-Host "`n[Step $step/$MaxSteps]" -ForegroundColor DarkGray
 
-        try {
-            $response = Send-ClawRequest `
-                -SystemPrompt $systemPrompt `
-                -Messages $messages `
-                -ToolSchemas $toolSchemas `
-                -UseStub:$UseStub
-        }
-        catch {
-            $msg = "$_"
-            if ($msg -match 'timed out|timeout') {
-                Write-Host "[Error] Claude didn't respond in 60s. Check your connection or try again." -ForegroundColor Red
-            } elseif ($msg -match 'rate limit|429') {
-                Write-Host "[Error] Rate limited by Claude API. Wait a moment and retry." -ForegroundColor Red
-            } elseif ($msg -match 'Invalid API key|401') {
-                Write-Host "[Error] Invalid API key. Check `$env:$((Get-Content (Join-Path $PSScriptRoot '..\config.json') | ConvertFrom-Json).api_key_env)." -ForegroundColor Red
-            } else {
-                Write-Host "[Error] LLM call failed: $msg" -ForegroundColor Red
+        $response  = $null
+        $retryWait = 10
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                $response = Send-ClawRequest `
+                    -SystemPrompt $systemPrompt `
+                    -Messages $messages `
+                    -ToolSchemas $toolSchemas `
+                    -UseStub:$UseStub
+                break   # success — exit retry loop
             }
+            catch {
+                $msg = "$_"
+                if ($msg -match 'rate limit|429') {
+                    if ($attempt -lt 3) {
+                        Write-Host "[Rate limited] Waiting ${retryWait}s before retry $attempt/2..." -ForegroundColor Yellow
+                        Start-Sleep -Seconds $retryWait
+                        $retryWait *= 2   # 10s → 20s
+                    } else {
+                        Write-Host "[Error] Rate limited after 3 attempts. Wait a minute and try again." -ForegroundColor Red
+                    }
+                } elseif ($msg -match 'timed out|timeout') {
+                    Write-Host "[Error] Claude didn't respond in 60s. Check your connection or try again." -ForegroundColor Red
+                    break
+                } elseif ($msg -match 'Invalid API key|401') {
+                    Write-Host "[Error] Invalid API key. Check `$env:$((Get-Content (Join-Path $PSScriptRoot '..\config.json') | ConvertFrom-Json).api_key_env)." -ForegroundColor Red
+                    break
+                } else {
+                    Write-Host "[Error] LLM call failed: $msg" -ForegroundColor Red
+                    break
+                }
+            }
+        }
+        if (-not $response) {
             return $null
         }
 
