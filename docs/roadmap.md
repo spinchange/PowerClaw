@@ -38,42 +38,54 @@ Adding or enabling tools should be straightforward without weakening safety.
 
 ## Current priorities
 
-### Priority 1: sharpen the default product experience
+### Priority 1: deepen trust and safety policy
+
+- Strengthen destructive-tool safety beyond confirmation tokens and current path
+  policy checks where practical.
+- Decide whether the structured log contract should expand beyond the current
+  minimal supported subset.
+- Keep live provider verification easy to run while preserving the fast offline
+  default suite.
+
+### Priority 2: keep setup and onboarding sharp
 
 - Keep the README and website aligned around the same onboarding sequence and
-  the same top workflows.
-- Continue refining the public ICP around Windows-native operations rather than
-  broad “agent framework” language.
-- Preserve the default tool set as an intentional portable core, with optional
-  extras clearly separated from the default product.
-
-### Priority 2: deepen trust and inspectability
-
-- Expand tests around `Invoke-ClawLoop`, especially unavailable-tool handling,
-  write confirmations, and multi-step behavior.
-- Keep CI enforcing the supported test entrypoint on Windows.
-- Improve log clarity and decide whether the log format is part of the supported
-  product surface.
-- Strengthen safety around destructive tools beyond a single Y/N prompt where
-  practical.
-
-### Priority 3: reduce setup friction
-
-- Improve install and upgrade ergonomics for local module deployment.
-- Clarify provider setup so Anthropic and OpenAI both feel first-class.
+  top workflows.
+- Preserve Anthropic and OpenAI as equally first-class setup paths.
 - Keep `Fetch-WebPage` documented as an optional capability with heavier local
   prerequisites unless setup becomes materially simpler.
 
-### Priority 4: strengthen the extensibility story
+### Priority 3: strengthen the extensibility story
 
-- Add stronger contract tests for tool metadata parsing and registration.
-- Document the drop-in tool authoring path more clearly.
-- Decide whether personal and machine-specific tools should move into optional
-  overlays or companion packages.
+- Keep expanding contract tests for tool metadata parsing, registration, schema
+  generation, and overlay activation behavior.
+- Keep overlays lightweight and explicit so machine-specific tools do not drift
+  back into the main portable surface.
+- Document the drop-in tool authoring path and overlay activation path clearly.
+
+## Recently completed
+
+- Public-facing README and homepage copy now align around the same ICP, the same
+  onboarding sequence, and the same top workflows.
+- `Invoke-ClawLoop` coverage is materially stronger around unavailable tools,
+  repeated tool calls, write confirmations, execution failures, truncation, and
+  structured logging behavior.
+- Destructive writes now require typed confirmation tokens, and `Remove-Files`
+  enforces fully qualified paths plus protected-root blocking.
+- Structured logs now distinguish blocked, declined, confirmed, executed, and
+  final-answer outcomes explicitly for loop inspection.
+- Structured logs now include a minimal supported subset with `SchemaVersion`
+  and stable core fields for every entry.
+- Install and setup ergonomics improved with provider-specific example configs,
+  clearer validation guidance, and better installed-module defaults.
+- `Fetch-WebPage` is no longer part of the default portable tool set.
+- Personal note-search tools moved into an optional overlay, and the repo now
+  includes an overlay install helper for one-machine activation.
+- Tool-contract regression coverage now includes metadata parsing, defaults,
+  enums, ranges, switch typing, and overlay activation behavior.
 
 ## Longer-term bets
 
-- Split machine-specific integrations into optional overlays or companion packages.
 - Add a richer planning and execution trace if PowerClaw becomes a more active
   workbench instead of a mostly single-request operator.
 - Explore deeper Windows-native integrations that strengthen the product moat:

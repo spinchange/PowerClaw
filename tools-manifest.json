@@ -6,7 +6,6 @@
     "Get-SystemSummary",
     "Read-FileContent",
     "Search-Files",
-    "Fetch-WebPage",
     "Get-NetworkStatus",
     "Get-StorageStatus",
     "Get-ServiceStatus",
@@ -14,7 +13,6 @@
     "Get-NetworkUsage"
   ],
   "disabled_tools": [
-    "Search-MyJoNotes",
-    "Search-MnVault"
+    "Fetch-WebPage"
   ]
 }

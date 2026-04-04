@@ -7,6 +7,11 @@ function Test-PowerClawSetup {
     $result = [ordered]@{
         ConfigPath         = $ConfigPath
         ConfigExists       = $false
+        ConfigTemplatePaths = @(
+            (Join-Path $PSScriptRoot '..\config.example.json'),
+            (Join-Path $PSScriptRoot '..\config.claude.example.json'),
+            (Join-Path $PSScriptRoot '..\config.openai.example.json')
+        )
         Provider           = $null
         Model              = $null
         ApiKeyEnv          = $null
@@ -21,7 +26,7 @@ function Test-PowerClawSetup {
 
     if (-not (Test-Path -LiteralPath $ConfigPath)) {
         $result.Issues += "config.json not found at $ConfigPath"
-        $result.Recommendations += "Create config.json from config.example.json or restore the repo config."
+        $result.Recommendations += "Create config.json from config.example.json, config.claude.example.json, or config.openai.example.json."
         return [PSCustomObject]$result
     }
 
@@ -34,6 +39,7 @@ function Test-PowerClawSetup {
     $supportedProviders = @('claude', 'openai')
     if ($config.provider -notin $supportedProviders) {
         $result.Issues += "Unsupported provider '$($config.provider)'. Supported providers: $($supportedProviders -join ', ')."
+        $result.Recommendations += "Set provider to 'claude' or 'openai' and choose the matching example config as your base: config.claude.example.json or config.openai.example.json."
     }
 
     if (-not $config.model) {
@@ -48,6 +54,19 @@ function Test-PowerClawSetup {
         if (-not $result.ApiKeyPresent) {
             $result.Issues += "Environment variable '$($config.api_key_env)' is not set."
             $result.Recommendations += "Set `$env:$($config.api_key_env) before running PowerClaw."
+        }
+    }
+
+    switch ($config.provider) {
+        'claude' {
+            if ($config.api_key_env -and $config.api_key_env -ne 'CLAUDE_API_KEY') {
+                $result.Recommendations += "Claude setups usually use api_key_env='CLAUDE_API_KEY'."
+            }
+        }
+        'openai' {
+            if ($config.api_key_env -and $config.api_key_env -ne 'OPENAI_API_KEY') {
+                $result.Recommendations += "OpenAI setups usually use api_key_env='OPENAI_API_KEY'."
+            }
         }
     }
 

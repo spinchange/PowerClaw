@@ -1,4 +1,4 @@
-# tools/Search-MyJoNotes.ps1
+# overlays/personal/tools/Search-MyJoNotes.ps1
 <#
 .CLAW_NAME
     Search-MyJoNotes

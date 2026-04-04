@@ -549,7 +549,7 @@
       <div><span class="t-cyan">PowerClaw v0.3</span></div>
       <div><span class="t-dim">Prompt: Give me a full system health check</span></div>
       <br>
-      <div><span class="t-dim">[PowerClaw] Registered 12 tools: Fetch-WebPage, Get-EventLogEntries, Get-NetworkStatus...</span></div>
+      <div><span class="t-dim">[PowerClaw] Registered 11 tools: Get-EventLogEntries, Get-NetworkStatus, Get-StorageStatus...</span></div>
       <br>
       <div><span class="t-dim">[Step 1/8]</span></div>
       <div><span class="t-cyan">[Executing]</span> Get-NetworkStatus</div>
@@ -617,7 +617,7 @@
     <div class="principle">
       <div class="principle-icon">👁️</div>
       <h3>Write ops require confirmation</h3>
-      <p>Any tool marked <code>Write</code> risk pauses and shows you exactly what will run before executing. You type Y or N.</p>
+      <p>Any tool marked <code>Write</code> risk pauses, shows you the arguments, and requires a typed confirmation token before executing.</p>
     </div>
     <div class="principle">
       <div class="principle-icon">🪟</div>
@@ -627,7 +627,7 @@
     <div class="principle">
       <div class="principle-icon">🔍</div>
       <h3>Every run is inspectable</h3>
-      <p>Plans, tool calls, outputs, and errors are logged. Use <code>-Verbose</code> to see the full request/response JSON. Use <code>-Plan</code> to preview without running.</p>
+      <p>Plans, tool requests, outcomes, final answers, and errors are logged as structured append-only entries. Use <code>-Verbose</code> to see the full request/response JSON. Use <code>-Plan</code> to preview without running.</p>
     </div>
     <div class="principle">
       <div class="principle-icon">🧩</div>
@@ -646,8 +646,8 @@
 <!-- Tools -->
 <section id="tools">
   <div class="section-label"># Tools</div>
-  <h2>12 default tools + optional personal integrations</h2>
-  <p class="section-sub">The portable default toolset covers machine health, files, networking, logs, and web reads. Personal knowledge tools exist, but stay outside the default onboarding path.</p>
+  <h2>11 default tools + optional integrations</h2>
+  <p class="section-sub">The portable default toolset covers machine health, files, networking, and local reads. Heavier optional integrations exist, but stay outside the default onboarding path.</p>
 
   <div class="tools-grid">
 
@@ -745,24 +745,15 @@
       <div class="tool-risk risk-write">Write</div>
       <div class="tool-info">
         <h3>Remove-Files</h3>
-        <p>Delete specific file paths. Sends to Recycle Bin by default. Requires confirmation.</p>
+        <p>Delete specific full-path files. Sends to Recycle Bin by default, requires confirmation, blocks protected system locations, and limits batch/permanent delete scope.</p>
         <div class="tool-cat">Filesystem</div>
-      </div>
-    </div>
-
-    <div class="tool">
-      <div class="tool-risk risk-read">ReadOnly</div>
-      <div class="tool-info">
-        <h3>Fetch-WebPage</h3>
-        <p>Fetch any URL via Playwright and return clean readable text. Handles JS-rendered pages.</p>
-        <div class="tool-cat">Web</div>
       </div>
     </div>
 
   </div>
 
   <div class="tools-note">
-    <strong>Optional overlays:</strong> personal tools such as <code>Search-MyJoNotes</code> and <code>Search-MnVault</code> can live in the repo without becoming part of the default portable product.
+    <strong>Optional integrations:</strong> heavier tools such as <code>Fetch-WebPage</code> stay disabled by default, and machine-specific note-search tools now live under <code>overlays\personal\</code> instead of the main portable tool directory.
   </div>
 </section>
 
@@ -789,8 +780,13 @@ cd PowerClaw</pre>
     <div class="step">
       <div class="step-num">2</div>
       <div class="step-content">
-        <h3>Copy and edit the starter config</h3>
-        <pre>Copy-Item .\config.example.json .\config.json</pre>
+        <h3>Copy a starter config</h3>
+        <pre>Copy-Item .\config.example.json .\config.json
+
+# Or start from a provider-specific template
+Copy-Item .\config.claude.example.json .\config.json
+# or
+Copy-Item .\config.openai.example.json .\config.json</pre>
       </div>
     </div>
 
@@ -837,14 +833,15 @@ $env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
         <pre>pwsh -File .\Install-PowerClaw.ps1 `
   -ModuleRoot C:\dev\powershell-modules `
   -BinRoot C:\dev\bin</pre>
+        <p style="margin-top:0.75rem;color:var(--ps-gray);font-size:0.8rem;">The installer copies the example configs and seeds <code>config.json</code> in the installed module directory if needed.</p>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">8</div>
       <div class="step-content">
-        <h3>Optional: Playwright (for Fetch-WebPage)</h3>
-        <pre><span class="comment"># One-time browser install</span>
+        <h3>Optional: enable Fetch-WebPage</h3>
+        <pre><span class="comment"># First enable Fetch-WebPage in tools-manifest.json, then install Playwright</span>
 $dir = <span class="string">"$env:USERPROFILE\.powerclaw-playwright\PwHost"</span>
 mkdir $dir -Force; cd $dir
 dotnet new console -n PwHost --framework net10.0 --force
@@ -873,7 +870,15 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
     </div>
     <div class="trust-card">
       <h3>Write confirmation</h3>
-      <p>Write-risk tools pause and show arguments before execution. You explicitly allow or decline the operation.</p>
+      <p>Write-risk tools pause and show arguments before execution. You must type the confirmation token to allow the operation.</p>
+    </div>
+    <div class="trust-card">
+      <h3>Write intent gate</h3>
+      <p>Write tools are blocked unless the user goal explicitly asks for a destructive change. Advisory prompts stay read-only until the user asks to act.</p>
+    </div>
+    <div class="trust-card">
+      <h3>Path policy</h3>
+      <p><code>Remove-Files</code> accepts only fully qualified file paths, blocks deletes from Windows, System, Program Files, and ProgramData locations, caps delete batches by default, and limits permanent delete to one file per call.</p>
     </div>
     <div class="trust-card">
       <h3>Preview mode</h3>

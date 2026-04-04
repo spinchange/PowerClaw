@@ -23,7 +23,13 @@ defined in `tools/` and allowed by `tools-manifest.json`.
 - `registry/`
   Tool discovery, manifest filtering, and JSON schema generation.
 - `tools/`
-  Approved callable tools. Each tool is its own `.ps1` file.
+  Portable callable tools that are part of the default product surface.
+- `overlays/personal/`
+  Machine-specific optional tools and manifest examples that are intentionally
+  kept out of the main portable tool directory.
+- `Install-PowerClawOverlay.ps1`
+  Helper for copying an overlay into an active repo or installed module tree and
+  updating the active manifest safely.
 - `tests/`
   Pester suite and legacy script-style regression tests.
 - `Run-Tests.ps1`
@@ -32,6 +38,10 @@ defined in `tools/` and allowed by `tools-manifest.json`.
   GitHub Actions workflow that runs the supported test suite on Windows.
 - `config.example.json`
   Starter config for provider/model setup.
+- `config.claude.example.json`
+  Provider-specific starter config for Anthropic setups.
+- `config.openai.example.json`
+  Provider-specific starter config for OpenAI setups.
 
 ## Primary commands
 
@@ -85,7 +95,7 @@ When adding or editing a tool:
 - `tools-manifest.json` is the source of truth for what can load.
 - Tools must be in `approved_tools` to register.
 - Tools in `disabled_tools` must not register, even if also approved.
-- Personal or machine-specific tools should stay disabled by default unless this
+- Personal or machine-specific tools should live under `overlays/` unless this
   repo is intentionally being customized for one machine.
 
 ## Provider rules

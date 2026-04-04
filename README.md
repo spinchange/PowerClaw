@@ -46,6 +46,14 @@ cd PowerClaw
 Copy-Item .\config.example.json .\config.json
 ```
 
+Or start from a provider-specific template:
+
+```powershell
+Copy-Item .\config.claude.example.json .\config.json
+# or
+Copy-Item .\config.openai.example.json .\config.json
+```
+
 Edit `config.json` for your provider, model, and API key env var.
 
 **3. Set your API key**
@@ -91,6 +99,9 @@ PowerShell module root and install the `powerclaw.ps1` launcher into a bin direc
 pwsh -File .\Install-PowerClaw.ps1 -ModuleRoot C:\dev\powershell-modules -BinRoot C:\dev\bin
 ```
 
+The installer now copies the example configs and seeds `config.json` in the
+installed module directory if one is not already present.
+
 Then make sure:
 
 - `C:\dev\powershell-modules` is on `PSModulePath`
@@ -104,9 +115,12 @@ powerclaw "What's eating my CPU?"
 
 ---
 
-## Optional: Fetch-WebPage (Playwright setup)
+## Optional: Enable Fetch-WebPage (Playwright setup)
 
-The `Fetch-WebPage` tool requires a one-time Playwright browser install:
+`Fetch-WebPage` is kept out of the default portable tool set because it requires
+extra local runtime setup. To enable it, move it from `disabled_tools` to
+`approved_tools` in `tools-manifest.json`, then complete the one-time Playwright
+browser install:
 
 ```powershell
 $dir = "$env:USERPROFILE\.powerclaw-playwright\PwHost"
@@ -151,6 +165,20 @@ Run the repo test suite with:
 pwsh -File .\Run-Tests.ps1
 ```
 
+Run the opt-in live provider smoke check only when you intentionally want a real
+network roundtrip:
+
+```powershell
+# Uses provider/model/api_key_env from config.json
+pwsh -File .\tests\Test-LiveProviderSmoke.ps1
+
+# Or verify both providers explicitly
+pwsh -File .\tests\Test-LiveProviderSmoke.ps1 `
+  -Provider both `
+  -ClaudeModel claude-sonnet-4-20250514 `
+  -OpenAiModel gpt-4.1-mini
+```
+
 If Pester 5.7.1 is not installed yet:
 
 ```powershell
@@ -173,10 +201,22 @@ Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -Sk
 | `Get-DirectoryListing` | Filesystem | List files in a directory |
 | `Search-Files` | Filesystem | Windows Search index queries |
 | `Read-FileContent` | Filesystem | Read and reason about any file |
-| `Remove-Files` | Filesystem | Delete files (Recycle Bin by default) |
-| `Fetch-WebPage` | Web | Fetch any URL, returns clean text |
+| `Remove-Files` | Filesystem | Delete specific full-path files, with protected-root blocks, a default batch ceiling, and single-file permanent delete |
 
-Optional personal integrations such as `Search-MyJoNotes` and `Search-MnVault` are kept disabled by default. If those paths do not exist on your machine, leave them out of `tools-manifest.json`.
+Optional integrations such as `Fetch-WebPage` are kept disabled by default. Personal note-search tools such as `Search-MyJoNotes` and `Search-MnVault` now live under `overlays\personal\` so the main repo stays portable.
+
+To enable the personal overlay on one machine, copy the desired tool files from
+`overlays\personal\tools\` into your active `tools\` directory and add their
+names to your active `tools-manifest.json`.
+
+Or use the helper script:
+
+```powershell
+pwsh -File .\Install-PowerClawOverlay.ps1 -OverlayName personal
+```
+
+That copies the overlay tools into the active `tools\` directory and updates the
+active `tools-manifest.json` to approve them.
 
 ### Adding your own tools
 
@@ -199,17 +239,30 @@ function My-Tool {
 }
 ```
 
-Risk levels: `ReadOnly` (runs freely) · `Write` (requires confirmation prompt)
+Risk levels: `ReadOnly` (runs freely) · `Write` (requires an explicit confirmation token)
 
 ---
 
 ## Safety
 
 - **Tool registry, not command generation.** Claude picks from approved tools only — it never writes raw PowerShell.
-- **Write tools require confirmation.** Any tool with `CLAW_RISK = Write` pauses and asks Y/N before executing.
+- **Write tools require explicit confirmation.** Any tool with `CLAW_RISK = Write` pauses, shows arguments, and requires a typed confirmation token before executing.
+- **Loop-level write policy.** Write tools are blocked unless the user goal explicitly asks for a destructive change. Advisory requests such as “what looks safe to remove?” stay read-only.
+- **Destructive path policy.** `Remove-Files` requires fully qualified file paths, blocks deletion from Windows, System, Program Files, and ProgramData locations, caps delete batches by default, and allows permanent delete for only one file per call.
 - **`-DryRun` mode.** Skips execution of write tools entirely.
-- **`-Plan` mode.** Shows the first tool Claude would call (step-1 preview). Run without `-Plan` to execute all steps.
+- **`-Plan` mode.** Shows the first tool the model would call (step-1 preview). Run without `-Plan` to execute all steps.
 - **Output truncation.** Tool output is capped at `max_output_chars` (config.json) before being sent to the API.
+- **Structured loop logs.** Each step writes structured append-only log entries with stable event/outcome pairs for requests, previews, blocks, declines, confirmations, executions, final answers, and aborts.
+
+### Supported log subset
+
+PowerClaw now treats a small core of the loop log schema as supported:
+
+- always present: `SchemaVersion`, `Timestamp`, `Event`, `Outcome`, `Step`
+- supported when applicable: `Tool`, `ToolUseId`, `Reason`
+
+Fields such as `Args`, `ResultPreview`, `ResultLen`, and `DurationMs` are still
+best-effort implementation detail rather than stable contract.
 
 ---
 
@@ -217,7 +270,13 @@ Risk levels: `ReadOnly` (runs freely) · `Write` (requires confirmation prompt)
 
 `config.json` — model, token limits, max steps, API key env var name.
 
+`config.claude.example.json` / `config.openai.example.json` — clean starting points for each supported provider.
+
 `tools-manifest.json` — the allowlist. Tools discovered on disk but not listed here are never loaded.
+
+`overlays\personal\` — optional machine-specific tools and an overlay manifest example.
+
+`Install-PowerClawOverlay.ps1` — helper to install an overlay into an active repo or installed module tree.
 
 ---
 

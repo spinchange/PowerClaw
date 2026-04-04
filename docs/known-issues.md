@@ -15,8 +15,9 @@ Impact:
 
 ### Provider live roundtrip coverage is still manual
 
-The automated suite covers provider payload translation and parsing offline, but
-does not exercise live Anthropic or OpenAI calls by default.
+The automated suite covers provider payload translation and parsing offline, and
+the repo now includes an opt-in live smoke script, but real Anthropic and OpenAI
+calls are still not exercised by default CI or the default local suite.
 
 Impact:
 - safer refactors
@@ -24,19 +25,28 @@ Impact:
 
 ### Write-tool safety is confirmation-based, not policy-rich
 
-Destructive tools rely on confirmation prompts and tool-level discipline.
+Destructive tools now require an explicit typed confirmation token, but still rely
+primarily on confirmation and tool-level discipline rather than richer policy
+controls.
 
 Impact:
 - acceptable for the current scope
+- improved by loop-level blocking when the user did not explicitly ask for a destructive change
+- improved by path-policy checks on `Remove-Files`
+- improved by default batch ceilings and single-file permanent delete limits
 - not sufficient for more advanced automation scenarios
 
-### Personal integrations remain repo-resident
+### Structured loop logs are clearer than their current contract
 
-Machine-specific tools exist in the main repo, even though they are disabled by default.
+The loop now emits structured per-step log entries with explicit event/outcome
+pairs for blocked, declined, confirmed, executed, and final-answer paths, and a
+minimal supported subset now exists. The remaining limitation is that the full
+event schema is still not treated as a formally versioned product surface.
 
 Impact:
-- convenient for one-machine customization
-- still mixes portable and personal concerns in one codebase
+- useful for debugging and inspection today
+- less ambiguous than before for write-path analysis
+- but downstream tooling or user expectations could still become fragile if the shape changes casually
 
 ### Default product narrative is stronger than the current docs architecture
 

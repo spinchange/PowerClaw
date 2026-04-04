@@ -1,4 +1,4 @@
-# tools/Search-MnVault.ps1
+# overlays/personal/tools/Search-MnVault.ps1
 <#
 .CLAW_NAME
     Search-MnVault

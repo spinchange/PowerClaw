@@ -51,11 +51,14 @@ $manifest = Get-Content (Join-Path $root "tools-manifest.json") -Raw | ConvertFr
 Assert-True "Get-SystemSummary is listed once" (
     (@($manifest.approved_tools | Where-Object { $_ -eq 'Get-SystemSummary' })).Count -eq 1
 )
-Assert-True "Search-MyJoNotes disabled by default" (
-    'Search-MyJoNotes' -in $manifest.disabled_tools
+Assert-True "Fetch-WebPage disabled by default" (
+    'Fetch-WebPage' -in $manifest.disabled_tools
 )
-Assert-True "Search-MnVault disabled by default" (
-    'Search-MnVault' -in $manifest.disabled_tools
+Assert-True "Personal tools moved to overlay" (
+    -not (Test-Path (Join-Path $root "tools\Search-MyJoNotes.ps1")) -and
+    -not (Test-Path (Join-Path $root "tools\Search-MnVault.ps1")) -and
+    (Test-Path (Join-Path $root "overlays\personal\tools\Search-MyJoNotes.ps1")) -and
+    (Test-Path (Join-Path $root "overlays\personal\tools\Search-MnVault.ps1"))
 )
 
 Write-Host "`n-- Register-ClawTools: disabled entries are actually skipped --" -ForegroundColor Cyan

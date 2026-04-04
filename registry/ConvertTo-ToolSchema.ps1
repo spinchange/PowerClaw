@@ -38,6 +38,7 @@ function ConvertTo-JsonType {
         'Double'  { 'number' }
         'Boolean' { 'boolean' }
         'Switch'  { 'boolean' }
+        'SwitchParameter' { 'boolean' }
         default   { 'string' }
     }
 }

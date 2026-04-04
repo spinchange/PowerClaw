@@ -82,6 +82,7 @@ Describe 'Setup validation' {
             $result.Ready | Should -BeFalse
             @($result.Issues) -join ' ' | Should -Match 'Unsupported provider'
             @($result.Issues) -join ' ' | Should -Match 'POWERCLAW_MISSING_KEY'
+            @($result.Recommendations) -join ' ' | Should -Match 'config\.openai\.example\.json'
         }
         finally {
             Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
@@ -114,6 +115,49 @@ Describe 'Tool behavior' {
         finally {
             Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
         }
+    }
+
+    It 'blocks relative paths for Remove-Files' {
+        $result = Remove-Files -Paths @('.\example.txt')
+
+        $result.FilesDeleted | Should -Be 0
+        $result.Blocked.Count | Should -Be 1
+        $result.Blocked[0].Reason | Should -Match 'fully qualified'
+    }
+
+    It 'blocks deletion from protected system roots' {
+        $protectedFile = Join-Path $env:WINDIR 'win.ini'
+
+        $result = Remove-Files -Paths @($protectedFile) -Permanent:$true
+
+        $result.FilesDeleted | Should -Be 0
+        $result.Blocked.Count | Should -Be 1
+        $result.Blocked[0].Path | Should -Be $protectedFile
+        $result.Blocked[0].Reason | Should -Match 'blocked by policy'
+        Test-Path -LiteralPath $protectedFile | Should -BeTrue
+    }
+
+    It 'blocks delete batches that exceed the explicit per-call ceiling' {
+        $result = Remove-Files -Paths @(
+            'C:\temp\a.txt',
+            'C:\temp\b.txt',
+            'C:\temp\c.txt'
+        ) -MaxDeleteCount 2
+
+        $result.FilesDeleted | Should -Be 0
+        $result.Blocked.Count | Should -Be 1
+        $result.Blocked[0].Reason | Should -Match 'exceeds MaxDeleteCount=2'
+    }
+
+    It 'blocks permanent delete requests that include more than one file' {
+        $result = Remove-Files -Paths @(
+            'C:\temp\a.txt',
+            'C:\temp\b.txt'
+        ) -Permanent:$true -MaxDeleteCount 2
+
+        $result.FilesDeleted | Should -Be 0
+        $result.Blocked.Count | Should -Be 1
+        $result.Blocked[0].Reason | Should -Match 'Permanent delete is limited to one file per call'
     }
 }
 
@@ -166,6 +210,116 @@ function Get-Beta {
         })
 
         $schema.input_schema.additionalProperties | Should -BeFalse
+    }
+
+    It 'keeps Fetch-WebPage outside the default approved tool set' {
+        $manifestPath = Join-Path $script:RepoRoot 'tools-manifest.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+
+        'Fetch-WebPage' -in @($manifest.approved_tools) | Should -BeFalse
+        'Fetch-WebPage' -in @($manifest.disabled_tools) | Should -BeTrue
+    }
+
+    It 'keeps personal tools outside the main portable tool directory' {
+        Test-Path -LiteralPath (Join-Path $script:RepoRoot 'tools\Search-MyJoNotes.ps1') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:RepoRoot 'tools\Search-MnVault.ps1') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:RepoRoot 'overlays\personal\tools\Search-MyJoNotes.ps1') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $script:RepoRoot 'overlays\personal\tools\Search-MnVault.ps1') | Should -BeTrue
+    }
+
+    It 'extracts tool metadata defaults enums and ranges into the contract' {
+        $tempRoot = Join-Path $env:TEMP 'powerclaw-pester-contract'
+        $tempTools = Join-Path $tempRoot 'tools'
+        $tempManifest = Join-Path $tempRoot 'tools-manifest.json'
+
+        New-Item -ItemType Directory -Path $tempTools -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $tempTools 'Get-ContractTool.ps1') -Value @'
+<#
+.CLAW_NAME
+    Get-ContractTool
+.CLAW_DESCRIPTION
+    Contract test tool that exposes defaults, validate sets, and ranges.
+.CLAW_RISK
+    Write
+#>
+function Get-ContractTool {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateSet('CPU','Memory')]
+        [string]$SortBy,
+
+        [ValidateRange(1, 10)]
+        [int]$Count = 5,
+
+        [switch]$Detailed
+    )
+
+    'ok'
+}
+'@
+        Set-Content -LiteralPath $tempManifest -Value @'
+{
+  "approved_tools": ["Get-ContractTool"],
+  "disabled_tools": []
+}
+'@
+
+        try {
+            $registered = @(Register-ClawTools -ToolsPath $tempTools -ManifestPath $tempManifest)
+            $registered.Count | Should -Be 1
+            $tool = $registered[0]
+
+            $tool.Description | Should -Match 'defaults, validate sets, and ranges'
+            $tool.Risk | Should -Be 'Write'
+
+            ($tool.Parameters | Where-Object Name -eq 'SortBy' | Select-Object -First 1).Enum | Should -Be @('CPU', 'Memory')
+            ($tool.Parameters | Where-Object Name -eq 'Count' | Select-Object -First 1).Default | Should -Be 5
+            ($tool.Parameters | Where-Object Name -eq 'Count' | Select-Object -First 1).Min | Should -Be 1
+            ($tool.Parameters | Where-Object Name -eq 'Count' | Select-Object -First 1).Max | Should -Be 10
+
+            $schema = ConvertTo-ClaudeToolSchema $tool
+            $schema.input_schema.properties.SortBy.enum | Should -Be @('CPU', 'Memory')
+            $schema.input_schema.properties.Count.default | Should -Be 5
+            $schema.input_schema.properties.Count.minimum | Should -Be 1
+            $schema.input_schema.properties.Count.maximum | Should -Be 10
+            $schema.input_schema.properties.Detailed.type | Should -Be 'boolean'
+        }
+        finally {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+Describe 'Overlay install helper' {
+    It 'copies overlay tools into a target root and updates the target manifest' {
+        $tempRoot = Join-Path $env:TEMP 'powerclaw-pester-overlay-install'
+        $targetRoot = Join-Path $tempRoot 'target'
+        $targetTools = Join-Path $targetRoot 'tools'
+        $targetManifest = Join-Path $targetRoot 'tools-manifest.json'
+        $scriptPath = Join-Path $script:RepoRoot 'Install-PowerClawOverlay.ps1'
+
+        New-Item -ItemType Directory -Path $targetTools -Force | Out-Null
+        Set-Content -LiteralPath $targetManifest -Value @'
+{
+  "approved_tools": ["Get-TopProcesses"],
+  "disabled_tools": ["Fetch-WebPage", "Search-MyJoNotes"]
+}
+'@
+
+        try {
+            & $scriptPath -OverlayName personal -RepoRoot $script:RepoRoot -TargetRoot $targetRoot
+
+            $manifest = Get-Content -LiteralPath $targetManifest -Raw | ConvertFrom-Json
+            Test-Path -LiteralPath (Join-Path $targetTools 'Search-MyJoNotes.ps1') | Should -BeTrue
+            Test-Path -LiteralPath (Join-Path $targetTools 'Search-MnVault.ps1') | Should -BeTrue
+            'Search-MyJoNotes' -in @($manifest.approved_tools) | Should -BeTrue
+            'Search-MnVault' -in @($manifest.approved_tools) | Should -BeTrue
+            'Search-MyJoNotes' -in @($manifest.disabled_tools) | Should -BeFalse
+        }
+        finally {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -357,6 +511,56 @@ Describe 'Loop behavior' {
         $script:CapturedMessages[1][2].content[0].type | Should -Be 'tool_result'
         $script:CapturedMessages[1][2].content[0].tool_use_id | Should -Be 'toolu_missing'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'not available'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'Get-TopProcesses'
+    }
+
+    It 'blocks repeated identical tool calls and tells the model to use the earlier result' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+        $script:Executions = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            if ($script:CallCount -le 2) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Get-TopProcesses'
+                    ToolInput = @{ SortBy = 'CPU'; Count = 5 }
+                    ToolUseId = "toolu_repeat_$script:CallCount"
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled repeat'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'find the top processes' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executions++
+                        'ok'
+                    }
+                }
+            ) `
+            -MaxSteps 3
+
+        $result | Should -Be 'handled repeat'
+        $script:Executions | Should -Be 1
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'repeated tool call detected'
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'Do not call the same tool again'
     }
 
     It 'returns a dry-run tool_result without invoking the write tool' {
@@ -408,6 +612,55 @@ Describe 'Loop behavior' {
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'dry run'
     }
 
+    It 'blocks write tools when the user goal does not explicitly request a destructive change' {
+        $script:CallCount = 0
+        $script:Executed = $false
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Remove-Files'
+                    ToolInput = @{ Paths = @('C:\temp\old.log') }
+                    ToolUseId = 'toolu_blocked'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled blocked write'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'inspect Downloads and tell me what looks safe to remove' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'should not run'
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Be 'handled blocked write'
+        $script:Executed | Should -BeFalse
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'Blocked by write policy'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'did not explicitly ask for a destructive change'
+    }
+
     It 'reports user decline as a proper tool_result turn and does not invoke the write tool' {
         $script:CallCount = 0
         $script:Executed = $false
@@ -432,7 +685,7 @@ Describe 'Loop behavior' {
             }
         }
 
-        Mock Read-Host { 'N' }
+        Mock Read-Host { 'nope' }
         Mock Start-Sleep {}
         Mock Add-Content {}
 
@@ -459,6 +712,53 @@ Describe 'Loop behavior' {
         $script:CapturedMessages[1][2].content[0].type | Should -Be 'tool_result'
         $script:CapturedMessages[1][2].content[0].tool_use_id | Should -Be 'toolu_decline'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'declined'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'REMOVE-FILES'
+    }
+
+    It 'requires the exact write confirmation token before executing a destructive tool' {
+        $script:CallCount = 0
+        $script:Executed = $false
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Remove-Files'
+                    ToolInput = @{ Paths = @('C:\temp\old.log') }
+                    ToolUseId = 'toolu_confirmed'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled confirmed delete'
+            }
+        }
+
+        Mock Read-Host { 'REMOVE-FILES' }
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'deleted'
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Be 'handled confirmed delete'
+        $script:Executed | Should -BeTrue
     }
 
     It 'feeds tool execution failures back as tool_result errors and continues' {
@@ -556,5 +856,169 @@ Describe 'Loop behavior' {
         $script:Warnings.Count | Should -Be 1
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'truncated'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'Do not call this tool again'
+    }
+
+    It 'writes structured log entries for step start, tool execution, and final answer' {
+        $script:CallCount = 0
+        $script:LogEntries = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Get-TopProcesses'
+                    ToolInput = @{ SortBy = 'CPU' }
+                    ToolUseId = 'toolu_log'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {
+            $script:LogEntries += ($Value | ConvertFrom-Json -Depth 10)
+        }
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'check processes' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -Config ([PSCustomObject]@{
+                max_output_chars = 500
+                log_file = 'powerclaw.log'
+            }) `
+            -MaxSteps 2
+
+        $result | Should -Be 'done'
+        @($script:LogEntries | Where-Object { $_.Event -eq 'step_start' }).Count | Should -BeGreaterThan 0
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_requested' }).Count | Should -Be 1
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_result' -and $_.Status -eq 'success' -and $_.Outcome -eq 'success' }).Count | Should -Be 1
+        @($script:LogEntries | Where-Object { $_.Event -eq 'final_answer' -and $_.Outcome -eq 'final_answer' }).Count | Should -Be 1
+        $toolResultEntry = $script:LogEntries | Where-Object { $_.Event -eq 'tool_result' } | Select-Object -First 1
+        $toolResultEntry.ToolUseId | Should -Be 'toolu_log'
+        $toolResultEntry.SchemaVersion | Should -Be '1'
+        $toolResultEntry.Timestamp | Should -Not -BeNullOrEmpty
+        $toolResultEntry.Step | Should -Be 1
+        $toolResultEntry.Tool | Should -Be 'Get-TopProcesses'
+    }
+
+    It 'logs blocked, declined, and executed write outcomes distinctly' {
+        $script:LogEntries = @()
+        $script:CallCount = 0
+        $script:ReadHostResponse = 'nope'
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Remove-Files'
+                    ToolInput = @{ Paths = @('C:\temp\old.log') }
+                    ToolUseId = 'toolu_write_gate'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Read-Host { $script:ReadHostResponse }
+        Mock Start-Sleep {}
+        Mock Add-Content {
+            $script:LogEntries += ($Value | ConvertFrom-Json -Depth 10)
+        }
+
+        $tool = [PSCustomObject]@{
+            Name = 'Remove-Files'
+            Description = 'Deletes files'
+            Risk = 'Write'
+            Parameters = @()
+            ScriptBlock = { 'deleted' }
+        }
+
+        $null = Invoke-ClawLoop -UserGoal 'inspect Downloads and tell me what looks safe to remove' -Tools @($tool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'blocked' -and $_.Reason -eq 'write_policy_blocked' }).Count | Should -Be 1
+
+        $script:LogEntries = @()
+        $script:CallCount = 0
+        $script:ReadHostResponse = 'nope'
+        $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($tool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'declined' -and $_.Reason -eq 'confirmation_declined' }).Count | Should -Be 1
+
+        $script:LogEntries = @()
+        $script:CallCount = 0
+        $script:ReadHostResponse = 'REMOVE-FILES'
+        $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($tool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_confirmed' -and $_.Outcome -eq 'confirmed' }).Count | Should -Be 1
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_result' -and $_.Outcome -eq 'executed_success' }).Count | Should -Be 1
+    }
+
+    It 'emits the supported core log fields on every structured entry' {
+        $script:CallCount = 0
+        $script:LogEntries = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Get-TopProcesses'
+                    ToolInput = @{ SortBy = 'CPU' }
+                    ToolUseId = 'toolu_core_fields'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {
+            $script:LogEntries += ($Value | ConvertFrom-Json -Depth 10)
+        }
+
+        $null = Invoke-ClawLoop `
+            -UserGoal 'check processes' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -Config ([PSCustomObject]@{
+                max_output_chars = 500
+                log_file = 'powerclaw.log'
+            }) `
+            -MaxSteps 2
+
+        foreach ($entry in $script:LogEntries) {
+            $entry.SchemaVersion | Should -Be '1'
+            $entry.Timestamp | Should -Not -BeNullOrEmpty
+            $entry.Event | Should -Not -BeNullOrEmpty
+            $entry.Outcome | Should -Not -BeNullOrEmpty
+            $entry.Step | Should -BeGreaterThan 0
+        }
     }
 }

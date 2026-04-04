@@ -55,12 +55,13 @@ Why:
 
 ### Portable defaults over machine-specific defaults
 
-Personal integrations such as `Search-MyJoNotes` and `Search-MnVault` are disabled
-by default.
+Personal integrations such as `Search-MyJoNotes` and `Search-MnVault` should live
+in an optional overlay rather than the main portable tool directory.
 
 Why:
 - the default repo should work on any Windows machine with minimal surprises
 - personal integrations are valid, but should be opt-in
+- the portable core is clearer when machine-specific tools are physically separate
 
 ### Provider choice is implementation detail, not primary product identity
 
@@ -90,6 +91,31 @@ on live network calls or live API keys.
 Why:
 - keeps default verification fast and deterministic
 - makes provider changes safer to refactor
+
+### Minimal structured log contract is a supported surface
+
+PowerClaw supports a small stable subset of the loop log schema for inspection
+and lightweight tooling.
+
+Supported fields on every log entry:
+- `SchemaVersion`
+- `Timestamp`
+- `Event`
+- `Outcome`
+- `Step`
+
+Additionally supported when present for tool-related entries:
+- `Tool`
+- `ToolUseId`
+- `Reason`
+
+Other fields such as previews, argument payloads, result lengths, and timing are
+useful but not yet part of the supported contract.
+
+Why:
+- makes inspectability real without freezing the whole log payload too early
+- gives downstream tooling a small stable target
+- preserves freedom to refine non-core fields while execution behavior evolves
 
 ## Update rule
 
