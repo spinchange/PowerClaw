@@ -127,6 +127,31 @@ Why:
 - gives downstream tooling a small stable target
 - preserves freedom to refine non-core fields while execution behavior evolves
 
+### Health-check workflows prefer deterministic system triage first
+
+When a prompt is clearly about machine health, diagnostics, disk/storage state,
+or similar workstation status, PowerClaw should prefer `Get-SystemTriage` as
+the first read-only tool when it is available.
+
+Why:
+- gives the model one bounded synthesized signal instead of forcing ad hoc
+  multi-tool reconstruction every time
+- reduces avoidable tool churn on flagship health-check prompts
+- makes answer quality more stable across providers by moving more judgment into
+  deterministic local logic
+
+### Disk pressure should surface before a drive is almost full
+
+For `system_triage` v1, `low_disk` now warns at `<= 20%` free space and becomes
+critical at `<= 10%` free space.
+
+Why:
+- the earlier threshold was too lenient for real workstation use and allowed
+  a nearly full system drive to still look fully healthy
+- user expectations for disk-health language are tighter than the earlier spec
+- the triage output should surface “getting tight” disk conditions before they
+  become near-failure states
+
 ## Update rule
 
 Add an entry here when:

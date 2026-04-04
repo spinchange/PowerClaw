@@ -100,6 +100,12 @@ Adding or enabling tools should be straightforward without weakening safety.
   tool-call, and follow-up tool-result flows.
 - Claude and OpenAI live smoke are now both verified successfully against the
   real provider paths.
+- Deterministic `system_triage` production is now implemented locally, exposed
+  through `Invoke-SystemTriage` and `Get-SystemTriage`, and used as the
+  preferred first signal for flagship health-check workflows.
+- Cleanup prompts now have stronger routing and discovery-budget protection so
+  vague “what can I delete” requests are less likely to wander into repeated
+  broad searches.
 
 ## Longer-term bets
 
