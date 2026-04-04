@@ -10,6 +10,64 @@
 #       Content   = <string>      # final_answer only
 #   }
 
+function Resolve-ClaudeApiErrorMessage {
+    [CmdletBinding()]
+    param(
+        [int]$Status,
+        [string]$Detail,
+        [string]$ApiKeyEnv
+    )
+
+    $parsedDetail = $null
+    $parsedMessage = $null
+    $parsedType = $null
+
+    if (-not [string]::IsNullOrWhiteSpace($Detail)) {
+        try {
+            $parsedDetail = $Detail | ConvertFrom-Json -Depth 10
+            if ($parsedDetail.error) {
+                $parsedMessage = [string]$parsedDetail.error.message
+                $parsedType = [string]$parsedDetail.error.type
+            }
+        }
+        catch {
+        }
+    }
+
+    $bestDetail = if (-not [string]::IsNullOrWhiteSpace($parsedMessage)) { $parsedMessage } else { $Detail }
+
+    switch ($Status) {
+        401 {
+            return "Invalid API key. Check `$env:$ApiKeyEnv."
+        }
+        429 {
+            if (-not [string]::IsNullOrWhiteSpace($bestDetail)) {
+                return "Rate limited by Claude. Wait a moment and try again. Detail: $bestDetail"
+            }
+
+            return 'Rate limited by Claude. Wait a moment and try again.'
+        }
+        529 {
+            if (-not [string]::IsNullOrWhiteSpace($bestDetail)) {
+                return "Claude API is overloaded. Try again shortly. Detail: $bestDetail"
+            }
+
+            return 'Claude API is overloaded. Try again shortly.'
+        }
+        default {
+            if (-not [string]::IsNullOrWhiteSpace($bestDetail)) {
+                return "API call failed (HTTP $Status): $bestDetail"
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($parsedType)) {
+                return "API call failed (HTTP $Status): $parsedType"
+            }
+
+            return "API call failed (HTTP $Status)."
+        }
+    }
+}
+
 function Send-ClaudeRequest {
     [CmdletBinding()]
     param(
@@ -55,12 +113,7 @@ function Send-ClaudeRequest {
         if ($_.Exception.Response) {
             $status = $_.Exception.Response.StatusCode.value__
             $detail = $_.ErrorDetails.Message
-            switch ($status) {
-                401     { throw "Invalid API key. Check `$env:$($Config.api_key_env)." }
-                429     { throw "Rate limited. Wait a moment and try again." }
-                529     { throw "Claude API is overloaded. Try again shortly." }
-                default { throw "API call failed (HTTP $status): $detail" }
-            }
+            throw (Resolve-ClaudeApiErrorMessage -Status $status -Detail $detail -ApiKeyEnv $Config.api_key_env)
         } else {
             throw "API call failed (no HTTP response): $($_.Exception.Message)"
         }

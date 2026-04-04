@@ -17,6 +17,59 @@
 #     → { role:"tool", tool_call_id, content }
 #   All other messages pass through unchanged.
 
+function Resolve-OpenAiApiErrorMessage {
+    [CmdletBinding()]
+    param(
+        [int]$Status,
+        [string]$Detail,
+        [string]$ApiKeyEnv
+    )
+
+    $parsedDetail = $null
+    $parsedMessage = $null
+    $parsedType = $null
+    $parsedCode = $null
+
+    if (-not [string]::IsNullOrWhiteSpace($Detail)) {
+        try {
+            $parsedDetail = $Detail | ConvertFrom-Json -Depth 10
+            if ($parsedDetail.error) {
+                $parsedMessage = [string]$parsedDetail.error.message
+                $parsedType = [string]$parsedDetail.error.type
+                $parsedCode = [string]$parsedDetail.error.code
+            }
+        }
+        catch {
+        }
+    }
+
+    $bestDetail = if (-not [string]::IsNullOrWhiteSpace($parsedMessage)) { $parsedMessage } else { $Detail }
+
+    switch ($Status) {
+        401 {
+            return "Invalid API key. Check `$env:$ApiKeyEnv."
+        }
+        429 {
+            if ($parsedType -eq 'insufficient_quota' -or $parsedCode -eq 'insufficient_quota') {
+                return "OpenAI quota exhausted or billing is not available for the current key/project. Detail: $bestDetail"
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($bestDetail)) {
+                return "Rate limited by OpenAI. Wait a moment and try again. Detail: $bestDetail"
+            }
+
+            return 'Rate limited by OpenAI. Wait a moment and try again.'
+        }
+        default {
+            if (-not [string]::IsNullOrWhiteSpace($bestDetail)) {
+                return "API call failed (HTTP $Status): $bestDetail"
+            }
+
+            return "API call failed (HTTP $Status)."
+        }
+    }
+}
+
 function Send-OpenAiRequest {
     [CmdletBinding()]
     param(
@@ -120,11 +173,7 @@ function Send-OpenAiRequest {
         if ($_.Exception.Response) {
             $status = $_.Exception.Response.StatusCode.value__
             $detail = $_.ErrorDetails.Message
-            switch ($status) {
-                401     { throw "Invalid API key. Check `$env:$($Config.api_key_env)." }
-                429     { throw "Rate limited. Wait a moment and try again." }
-                default { throw "API call failed (HTTP $status): $detail" }
-            }
+            throw (Resolve-OpenAiApiErrorMessage -Status $status -Detail $detail -ApiKeyEnv $Config.api_key_env)
         } else {
             throw "API call failed (no HTTP response): $($_.Exception.Message)"
         }

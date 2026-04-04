@@ -30,6 +30,38 @@ function Assert-Smoke {
     Write-Host "  [PASS] $Label" -ForegroundColor Green
 }
 
+function Invoke-SmokeWithRetry {
+    param(
+        [scriptblock]$Action,
+        [string]$Label,
+        [int]$MaxAttempts = 3
+    )
+
+    $delaySeconds = 10
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            return & $Action
+        }
+        catch {
+            $message = "$_"
+            $isRetryable = (
+                $message -match '^Rate limited by ' -or
+                $message -match '^Rate limited\.' -or
+                $message -match '^Claude API is overloaded'
+            )
+
+            if ((-not $isRetryable) -or $attempt -eq $MaxAttempts) {
+                throw
+            }
+
+            Write-Host "  [Retry] $Label hit a transient provider limit. Waiting $delaySeconds seconds before retry $attempt/$($MaxAttempts - 1)..." -ForegroundColor Yellow
+            Start-Sleep -Seconds $delaySeconds
+            $delaySeconds *= 2
+        }
+    }
+}
+
 function Resolve-SmokeTargets {
     param(
         [string]$RequestedProvider,
@@ -115,20 +147,22 @@ function Invoke-ProviderFinalAnswerSmoke {
         @{ role = 'user'; content = 'Reply with exactly: POWERCLAW_SMOKE_OK' }
     )
 
-    $result = switch ($SmokeProvider) {
-        'claude' {
-            Send-ClaudeRequest `
-                -SystemPrompt 'Return a plain text final answer only.' `
-                -Messages $messages `
-                -ToolSchemas @() `
-                -Config $config
-        }
-        'openai' {
-            Send-OpenAiRequest `
-                -SystemPrompt 'Return a plain text final answer only.' `
-                -Messages $messages `
-                -ToolSchemas @() `
-                -Config $config
+    $result = Invoke-SmokeWithRetry -Label "$SmokeProvider final-answer smoke" -Action {
+        switch ($SmokeProvider) {
+            'claude' {
+                Send-ClaudeRequest `
+                    -SystemPrompt 'Return a plain text final answer only.' `
+                    -Messages $messages `
+                    -ToolSchemas @() `
+                    -Config $config
+            }
+            'openai' {
+                Send-OpenAiRequest `
+                    -SystemPrompt 'Return a plain text final answer only.' `
+                    -Messages $messages `
+                    -ToolSchemas @() `
+                    -Config $config
+            }
         }
     }
 
@@ -168,20 +202,22 @@ function Invoke-ProviderToolCallSmoke {
         @{ role = 'user'; content = 'Call Get-SmokeStatus with Label set to POWERCLAW_SMOKE_TOOL. Do not answer directly.' }
     )
 
-    $result = switch ($SmokeProvider) {
-        'claude' {
-            Send-ClaudeRequest `
-                -SystemPrompt 'Use the provided tool when the user explicitly asks for it.' `
-                -Messages $messages `
-                -ToolSchemas $toolSchemas `
-                -Config $config
-        }
-        'openai' {
-            Send-OpenAiRequest `
-                -SystemPrompt 'Use the provided tool when the user explicitly asks for it.' `
-                -Messages $messages `
-                -ToolSchemas $toolSchemas `
-                -Config $config
+    $result = Invoke-SmokeWithRetry -Label "$SmokeProvider tool-call smoke" -Action {
+        switch ($SmokeProvider) {
+            'claude' {
+                Send-ClaudeRequest `
+                    -SystemPrompt 'Use the provided tool when the user explicitly asks for it.' `
+                    -Messages $messages `
+                    -ToolSchemas $toolSchemas `
+                    -Config $config
+            }
+            'openai' {
+                Send-OpenAiRequest `
+                    -SystemPrompt 'Use the provided tool when the user explicitly asks for it.' `
+                    -Messages $messages `
+                    -ToolSchemas $toolSchemas `
+                    -Config $config
+            }
         }
     }
 
@@ -189,6 +225,105 @@ function Invoke-ProviderToolCallSmoke {
     Assert-Smoke "$SmokeProvider tool-call name" ($result.ToolName -eq 'Get-SmokeStatus')
     Assert-Smoke "$SmokeProvider tool-call label arg" ($result.ToolInput.Label -eq 'POWERCLAW_SMOKE_TOOL')
     Assert-Smoke "$SmokeProvider tool-call id present" (-not [string]::IsNullOrWhiteSpace($result.ToolUseId))
+}
+
+function Invoke-ProviderToolRoundtripSmoke {
+    param(
+        [string]$SmokeProvider,
+        [string]$Model,
+        [string]$ApiKeyEnv
+    )
+
+    $config = [PSCustomObject]@{
+        model       = $Model
+        max_tokens  = 256
+        api_key_env = $ApiKeyEnv
+    }
+
+    $toolSchemas = @(
+        @{
+            name = 'Get-SmokeStatus'
+            description = 'Returns the smoke label for verification.'
+            input_schema = @{
+                type = 'object'
+                properties = @{
+                    Label = @{ type = 'string' }
+                }
+                required = @('Label')
+                additionalProperties = $false
+            }
+        }
+    )
+
+    $initialMessages = @(
+        @{ role = 'user'; content = 'Call Get-SmokeStatus with Label set to POWERCLAW_SMOKE_TOOL. After you get the tool result, reply with exactly: POWERCLAW_TOOL_ROUNDTRIP_OK' }
+    )
+
+    $toolCallResult = Invoke-SmokeWithRetry -Label "$SmokeProvider roundtrip step 1 smoke" -Action {
+        switch ($SmokeProvider) {
+            'claude' {
+                Send-ClaudeRequest `
+                    -SystemPrompt 'Use the provided tool when the user explicitly asks for it. After receiving the tool result, answer with exactly the requested phrase and nothing else.' `
+                    -Messages $initialMessages `
+                    -ToolSchemas $toolSchemas `
+                    -Config $config
+            }
+            'openai' {
+                Send-OpenAiRequest `
+                    -SystemPrompt 'Use the provided tool when the user explicitly asks for it. After receiving the tool result, answer with exactly the requested phrase and nothing else.' `
+                    -Messages $initialMessages `
+                    -ToolSchemas $toolSchemas `
+                    -Config $config
+            }
+        }
+    }
+
+    Assert-Smoke "$SmokeProvider roundtrip step 1 response type" ($toolCallResult.Type -eq 'tool_call')
+    Assert-Smoke "$SmokeProvider roundtrip step 1 tool name" ($toolCallResult.ToolName -eq 'Get-SmokeStatus')
+    Assert-Smoke "$SmokeProvider roundtrip step 1 label arg" ($toolCallResult.ToolInput.Label -eq 'POWERCLAW_SMOKE_TOOL')
+
+    $followUpMessages = @(
+        $initialMessages[0]
+        @{
+            role = 'assistant'
+            content = @(@{
+                type  = 'tool_use'
+                id    = $toolCallResult.ToolUseId
+                name  = $toolCallResult.ToolName
+                input = $toolCallResult.ToolInput
+            })
+        }
+        @{
+            role = 'user'
+            content = @(@{
+                type        = 'tool_result'
+                tool_use_id = $toolCallResult.ToolUseId
+                content     = 'Tool returned POWERCLAW_SMOKE_TOOL.'
+            })
+        }
+    )
+
+    $finalResult = Invoke-SmokeWithRetry -Label "$SmokeProvider roundtrip step 2 smoke" -Action {
+        switch ($SmokeProvider) {
+            'claude' {
+                Send-ClaudeRequest `
+                    -SystemPrompt 'After the provided tool result arrives, reply with exactly the requested phrase and nothing else.' `
+                    -Messages $followUpMessages `
+                    -ToolSchemas $toolSchemas `
+                    -Config $config
+            }
+            'openai' {
+                Send-OpenAiRequest `
+                    -SystemPrompt 'After the provided tool result arrives, reply with exactly the requested phrase and nothing else.' `
+                    -Messages $followUpMessages `
+                    -ToolSchemas $toolSchemas `
+                    -Config $config
+            }
+        }
+    }
+
+    Assert-Smoke "$SmokeProvider roundtrip step 2 response type" ($finalResult.Type -eq 'final_answer')
+    Assert-Smoke "$SmokeProvider roundtrip final content" ($finalResult.Content -match 'POWERCLAW_TOOL_ROUNDTRIP_OK')
 }
 
 $targets = Resolve-SmokeTargets `
@@ -218,6 +353,11 @@ foreach ($target in $targets) {
         -ApiKeyEnv $target.ApiKeyEnv
 
     Invoke-ProviderToolCallSmoke `
+        -SmokeProvider $target.Provider `
+        -Model $target.Model `
+        -ApiKeyEnv $target.ApiKeyEnv
+
+    Invoke-ProviderToolRoundtripSmoke `
         -SmokeProvider $target.Provider `
         -Model $target.Model `
         -ApiKeyEnv $target.ApiKeyEnv

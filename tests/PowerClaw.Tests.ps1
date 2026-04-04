@@ -694,6 +694,80 @@ bar 234 21.5 128.0
         $result.ToolInput.Count | Should -Be 5
     }
 
+    It 'translates OpenAI tool-result turns and parses the follow-up final answer' {
+        $env:POWERCLAW_TEST_OPENAI_KEY = 'test-openai-key'
+
+        Mock Invoke-RestMethod {
+            $script:OpenAiToolResultCall = @{
+                Uri = $Uri
+                Body = $Body | ConvertFrom-Json -Depth 20
+                Headers = $Headers
+            }
+
+            [PSCustomObject]@{
+                choices = @(
+                    [PSCustomObject]@{
+                        finish_reason = 'stop'
+                        message = [PSCustomObject]@{
+                            content = 'POWERCLAW_TOOL_ROUNDTRIP_OK'
+                        }
+                    }
+                )
+            }
+        }
+
+        $result = Send-OpenAiRequest `
+            -SystemPrompt 'system prompt' `
+            -Messages @(
+                @{ role = 'user'; content = 'Use the tool and then summarize the result.' }
+                @{
+                    role = 'assistant'
+                    content = @(@{
+                        type  = 'tool_use'
+                        id    = 'toolu_roundtrip'
+                        name  = 'Get-SmokeStatus'
+                        input = @{ Label = 'POWERCLAW_SMOKE_TOOL' }
+                    })
+                }
+                @{
+                    role = 'user'
+                    content = @(@{
+                        type        = 'tool_result'
+                        tool_use_id = 'toolu_roundtrip'
+                        content     = 'Tool returned POWERCLAW_SMOKE_TOOL.'
+                    })
+                }
+            ) `
+            -ToolSchemas @(
+                @{
+                    name = 'Get-SmokeStatus'
+                    description = 'Returns the smoke label for verification.'
+                    input_schema = @{
+                        type = 'object'
+                        properties = @{
+                            Label = @{ type = 'string' }
+                        }
+                        required = @('Label')
+                        additionalProperties = $false
+                    }
+                }
+            ) `
+            -Config ([PSCustomObject]@{
+                model = 'gpt-test'
+                max_tokens = 256
+                api_key_env = 'POWERCLAW_TEST_OPENAI_KEY'
+            })
+
+        $script:OpenAiToolResultCall.Uri | Should -Be 'https://api.openai.com/v1/chat/completions'
+        $script:OpenAiToolResultCall.Body.messages[0].role | Should -Be 'system'
+        $script:OpenAiToolResultCall.Body.messages[2].tool_calls[0].id | Should -Be 'toolu_roundtrip'
+        $script:OpenAiToolResultCall.Body.messages[3].role | Should -Be 'tool'
+        $script:OpenAiToolResultCall.Body.messages[3].tool_call_id | Should -Be 'toolu_roundtrip'
+        $script:OpenAiToolResultCall.Body.messages[3].content | Should -Be 'Tool returned POWERCLAW_SMOKE_TOOL.'
+        $result.Type | Should -Be 'final_answer'
+        $result.Content | Should -Be 'POWERCLAW_TOOL_ROUNDTRIP_OK'
+    }
+
     It 'builds Claude payloads and converts tool_use input to a hashtable' {
         $env:POWERCLAW_TEST_CLAUDE_KEY = 'test-claude-key'
 
@@ -748,6 +822,109 @@ bar 234 21.5 128.0
         $result.Type | Should -Be 'tool_call'
         $result.ToolName | Should -Be 'Search-Files'
         $result.ToolInput.Limit | Should -Be 10
+    }
+
+    It 'passes Claude tool-result turns through and parses the follow-up final answer' {
+        $env:POWERCLAW_TEST_CLAUDE_KEY = 'test-claude-key'
+
+        Mock Invoke-RestMethod {
+            $script:ClaudeToolResultCall = @{
+                Uri = $Uri
+                Body = $Body | ConvertFrom-Json -Depth 20
+                Headers = $Headers
+            }
+
+            [PSCustomObject]@{
+                stop_reason = 'end_turn'
+                content = @(
+                    [PSCustomObject]@{
+                        type = 'text'
+                        text = 'POWERCLAW_TOOL_ROUNDTRIP_OK'
+                    }
+                )
+            }
+        }
+
+        $result = Send-ClaudeRequest `
+            -SystemPrompt 'system prompt' `
+            -Messages @(
+                @{ role = 'user'; content = 'Use the tool and then summarize the result.' }
+                @{
+                    role = 'assistant'
+                    content = @(@{
+                        type  = 'tool_use'
+                        id    = 'toolu_roundtrip'
+                        name  = 'Get-SmokeStatus'
+                        input = @{ Label = 'POWERCLAW_SMOKE_TOOL' }
+                    })
+                }
+                @{
+                    role = 'user'
+                    content = @(@{
+                        type        = 'tool_result'
+                        tool_use_id = 'toolu_roundtrip'
+                        content     = 'Tool returned POWERCLAW_SMOKE_TOOL.'
+                    })
+                }
+            ) `
+            -ToolSchemas @(
+                @{
+                    name = 'Get-SmokeStatus'
+                    description = 'Returns the smoke label for verification.'
+                    input_schema = @{
+                        type = 'object'
+                        properties = @{
+                            Label = @{ type = 'string' }
+                        }
+                        required = @('Label')
+                        additionalProperties = $false
+                    }
+                }
+            ) `
+            -Config ([PSCustomObject]@{
+                model = 'claude-test'
+                max_tokens = 256
+                api_key_env = 'POWERCLAW_TEST_CLAUDE_KEY'
+            })
+
+        $script:ClaudeToolResultCall.Uri | Should -Be 'https://api.anthropic.com/v1/messages'
+        $script:ClaudeToolResultCall.Body.system | Should -Be 'system prompt'
+        $script:ClaudeToolResultCall.Body.messages[1].content[0].id | Should -Be 'toolu_roundtrip'
+        $script:ClaudeToolResultCall.Body.messages[2].content[0].type | Should -Be 'tool_result'
+        $script:ClaudeToolResultCall.Body.messages[2].content[0].tool_use_id | Should -Be 'toolu_roundtrip'
+        $script:ClaudeToolResultCall.Body.messages[2].content[0].content | Should -Be 'Tool returned POWERCLAW_SMOKE_TOOL.'
+        $result.Type | Should -Be 'final_answer'
+        $result.Content | Should -Be 'POWERCLAW_TOOL_ROUNDTRIP_OK'
+    }
+
+    It 'surfaces OpenAI insufficient quota distinctly from generic rate limits' {
+        $message = Resolve-OpenAiApiErrorMessage `
+            -Status 429 `
+            -Detail '{"error":{"message":"You exceeded your current quota.","type":"insufficient_quota","code":"insufficient_quota"}}' `
+            -ApiKeyEnv 'OPENAI_API_KEY'
+
+        $message | Should -Match 'quota exhausted or billing is not available'
+        $message | Should -Match 'You exceeded your current quota'
+    }
+
+    It 'includes OpenAI rate-limit detail when available' {
+        $message = Resolve-OpenAiApiErrorMessage `
+            -Status 429 `
+            -Detail '{"error":{"message":"Please retry after 10s.","type":"rate_limit_exceeded","code":"rate_limit_exceeded"}}' `
+            -ApiKeyEnv 'OPENAI_API_KEY'
+
+        $message | Should -Match 'Rate limited by OpenAI'
+        $message | Should -Match 'Please retry after 10s'
+    }
+
+    It 'includes Claude overload detail when available' {
+        $message = Resolve-ClaudeApiErrorMessage `
+            -Status 529 `
+            -Detail '{"error":{"message":"Overloaded right now.","type":"overloaded_error"}}' `
+            -ApiKeyEnv 'CLAUDE_API_KEY'
+
+        $message | Should -Match 'Claude API is overloaded'
+        $message | Should -Match 'Overloaded right now'
     }
 }
 
@@ -827,12 +1004,64 @@ Describe 'Loop behavior' {
                     Risk = 'ReadOnly'
                     Parameters = @()
                     ScriptBlock = { 'ok' }
+                },
+                [PSCustomObject]@{
+                    Name = 'Get-StorageStatus'
+                    Description = 'Gets storage status'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                },
+                [PSCustomObject]@{
+                    Name = 'Get-NetworkStatus'
+                    Description = 'Gets network status'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
                 }
             ) `
             -MaxSteps 1
 
         $script:CapturedSystemPrompt | Should -Match 'combine a few complementary tools'
         $script:CapturedSystemPrompt | Should -Match 'overall status first'
+        $script:CapturedSystemPrompt | Should -Match 'start with Get-SystemSummary and usually add at least one complementary tool'
+        $script:CapturedSystemPrompt | Should -Match 'Available follow-up signals here: Get-StorageStatus, Get-NetworkStatus'
+        $script:CapturedSystemPrompt | Should -Match 'usually finish in 1 to 3 tool calls'
+        $script:CapturedSystemPrompt | Should -Match 'Prefer a fast first answer'
+        $script:CapturedSystemPrompt | Should -Match 'prefer system summary first, then storage or event issues if needed'
+        $script:CapturedSystemPrompt | Should -Match 'Overall status, Key findings, Why it matters, Next checks'
+        $script:CapturedSystemPrompt | Should -Match 'Do not end a health check with a raw metric dump'
+    }
+
+    It 'adds a general final-answer interpretation rule to the system prompt' {
+        $script:CapturedSystemPrompt = $null
+
+        Mock Send-ClawRequest {
+            $script:CapturedSystemPrompt = $SystemPrompt
+            [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Add-Content {}
+        Mock Start-Sleep {}
+
+        $null = Invoke-ClawLoop `
+            -UserGoal 'Give me a full system health check' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-SystemSummary'
+                    Description = 'Gets system summary'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 1
+
+        $script:CapturedSystemPrompt | Should -Match 'interpret the tool results for the user'
+        $script:CapturedSystemPrompt | Should -Match 'Do not just restate tool names'
     }
 
     It 'adds workflow-specific recommendation guidance for cleanup prompts' {
@@ -858,12 +1087,24 @@ Describe 'Loop behavior' {
                     Risk = 'ReadOnly'
                     Parameters = @()
                     ScriptBlock = { 'ok' }
+                },
+                [PSCustomObject]@{
+                    Name = 'Get-DirectoryListing'
+                    Description = 'Lists a directory'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
                 }
             ) `
             -MaxSteps 1
 
         $script:CapturedSystemPrompt | Should -Match 'Find the likely cleanup targets first'
         $script:CapturedSystemPrompt | Should -Match 'should not stop at raw listings'
+        $script:CapturedSystemPrompt | Should -Match 'start with Search-Files or another broad discovery tool'
+        $script:CapturedSystemPrompt | Should -Match 'Add context tools such as Get-DirectoryListing only when the first discovery result leaves real ambiguity'
+        $script:CapturedSystemPrompt | Should -Match 'usually finish in 1 to 2 tool calls'
+        $script:CapturedSystemPrompt | Should -Match 'Do not recommend deletion just because a file is large'
+        $script:CapturedSystemPrompt | Should -Match 'worth reviewing'
     }
 
     It 'adds workflow-specific summary guidance for read and investigate prompts' {
@@ -956,12 +1197,22 @@ Describe 'Loop behavior' {
             $script:CallCount++
             $script:CapturedMessages += ,$Messages
 
-            if ($script:CallCount -eq 1) {
-                return [PSCustomObject]@{
-                    Type      = 'tool_call'
-                    ToolName  = 'Remove-Files'
-                    ToolInput = @{ Paths = @('C:\temp\old.log') }
-                    ToolUseId = 'toolu_dryrun'
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_dryrun_search'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\old.log') }
+                        ToolUseId = 'toolu_dryrun'
+                    }
                 }
             }
 
@@ -978,6 +1229,18 @@ Describe 'Loop behavior' {
             -UserGoal 'delete that file' `
             -Tools @(
                 [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+old.log C:\temp\old.log 12.5 2026-04-04
+'@
+                    }
+                }
+                [PSCustomObject]@{
                     Name = 'Remove-Files'
                     Description = 'Deletes files'
                     Risk = 'Write'
@@ -988,12 +1251,12 @@ Describe 'Loop behavior' {
                     }
                 }
             ) `
-            -MaxSteps 2 `
+            -MaxSteps 3 `
             -DryRun
 
         $result | Should -Be 'handled dry run'
         $script:Executed | Should -BeFalse
-        $script:CapturedMessages[1][2].content[0].content | Should -Match 'dry run'
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'dry run'
     }
 
     It 'uses simulated tool results in stub mode instead of executing the real tool' {
@@ -1206,7 +1469,347 @@ Describe 'Loop behavior' {
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'did not explicitly ask for a destructive change'
     }
 
+    It 'caps default health-check execution at three read-only tools and forces synthesis' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+        $script:ExecutedTools = [System.Collections.Generic.List[string]]::new()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-SystemSummary'
+                        ToolInput = @{ View = 'Full' }
+                        ToolUseId = 'toolu_health_1'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-StorageStatus'
+                        ToolInput = @{ View = 'Summary' }
+                        ToolUseId = 'toolu_health_2'
+                    }
+                }
+                3 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-EventLogEntries'
+                        ToolInput = @{ LogName = 'System'; Level = 'Error'; Newest = 10 }
+                        ToolUseId = 'toolu_health_3'
+                    }
+                }
+                4 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-NetworkStatus'
+                        ToolInput = @{}
+                        ToolUseId = 'toolu_health_4'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'health summary from current signals'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Give me a full system health check' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-SystemSummary'
+                    Description = 'Get-SystemSummary'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Get-SystemSummary') | Out-Null
+                        'ok'
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Get-StorageStatus'
+                    Description = 'Get-StorageStatus'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Get-StorageStatus') | Out-Null
+                        'ok'
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Get-EventLogEntries'
+                    Description = 'Get-EventLogEntries'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Get-EventLogEntries') | Out-Null
+                        'ok'
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Get-NetworkStatus'
+                    Description = 'Get-NetworkStatus'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Get-NetworkStatus') | Out-Null
+                        'ok'
+                    }
+                }
+            ) `
+            -MaxSteps 5
+
+        $result | Should -Be 'health summary from current signals'
+        @($script:ExecutedTools) | Should -Be @('Get-SystemSummary', 'Get-StorageStatus', 'Get-EventLogEntries')
+        $script:CapturedMessages[4][8].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[4][8].content[0].content | Should -Match 'Health-check latency budget reached'
+        $script:CapturedMessages[4][8].content[0].content | Should -Match 'Answer now from the signals already gathered'
+    }
+
+    It 'caps default cleanup execution at two read-only tools and forces synthesis' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+        $script:ExecutedTools = [System.Collections.Generic.List[string]]::new()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_cleanup_1'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-DirectoryListing'
+                        ToolInput = @{ Path = 'C:\Users\chris\Downloads'; Limit = 25 }
+                        ToolUseId = 'toolu_cleanup_2'
+                    }
+                }
+                3 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Read-FileContent'
+                        ToolInput = @{ Path = 'C:\Users\chris\Downloads\driver-pack.exe' }
+                        ToolUseId = 'toolu_cleanup_3'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'cleanup summary from current signals'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Find the biggest files in Downloads and tell me what I should clean up' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Search-Files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Search-Files') | Out-Null
+                        'ok'
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Get-DirectoryListing'
+                    Description = 'Get-DirectoryListing'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Get-DirectoryListing') | Out-Null
+                        'ok'
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Read-FileContent'
+                    Description = 'Read-FileContent'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Read-FileContent') | Out-Null
+                        'ok'
+                    }
+                }
+            ) `
+            -MaxSteps 4
+
+        $result | Should -Be 'cleanup summary from current signals'
+        @($script:ExecutedTools) | Should -Be @('Search-Files', 'Get-DirectoryListing')
+        $script:CapturedMessages[3][6].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'Cleanup latency budget reached'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'Answer now from the files and context already gathered'
+    }
+
     It 'reports user decline as a proper tool_result turn and does not invoke the write tool' {
+        $script:CallCount = 0
+        $script:Executed = $false
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_decline_search'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\old.log') }
+                        ToolUseId = 'toolu_decline'
+                    }
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled decline'
+            }
+        }
+
+        Mock Read-Host { 'nope' }
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+old.log C:\temp\old.log 12.5 2026-04-04
+'@
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'should not run'
+                    }
+                }
+            ) `
+            -MaxSteps 3
+
+        $result | Should -Be 'handled decline'
+        $script:Executed | Should -BeFalse
+        $script:CallCount | Should -Be 3
+        $script:CapturedMessages[2][3].content[0].type | Should -Be 'tool_use'
+        $script:CapturedMessages[2][4].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[2][4].content[0].tool_use_id | Should -Be 'toolu_decline'
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'declined'
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'REMOVE-FILES'
+    }
+
+    It 'requires the exact write confirmation token before executing a destructive tool' {
+        $script:CallCount = 0
+        $script:Executed = $false
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_confirm_search'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\old.log') }
+                        ToolUseId = 'toolu_confirmed'
+                    }
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled confirmed delete'
+            }
+        }
+
+        Mock Read-Host { 'REMOVE-FILES' }
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+old.log C:\temp\old.log 12.5 2026-04-04
+'@
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'deleted'
+                    }
+                }
+            ) `
+            -MaxSteps 3
+
+        $result | Should -Be 'handled confirmed delete'
+        $script:Executed | Should -BeTrue
+    }
+
+    It 'blocks Remove-Files when the exact target paths were not previously shown by read-only tools' {
         $script:CallCount = 0
         $script:Executed = $false
         $script:CapturedMessages = @()
@@ -1220,17 +1823,16 @@ Describe 'Loop behavior' {
                     Type      = 'tool_call'
                     ToolName  = 'Remove-Files'
                     ToolInput = @{ Paths = @('C:\temp\old.log') }
-                    ToolUseId = 'toolu_decline'
+                    ToolUseId = 'toolu_needs_evidence'
                 }
             }
 
             return [PSCustomObject]@{
                 Type    = 'final_answer'
-                Content = 'handled decline'
+                Content = 'handled missing evidence'
             }
         }
 
-        Mock Read-Host { 'nope' }
         Mock Start-Sleep {}
         Mock Add-Content {}
 
@@ -1250,35 +1852,44 @@ Describe 'Loop behavior' {
             ) `
             -MaxSteps 2
 
-        $result | Should -Be 'handled decline'
+        $result | Should -Be 'handled missing evidence'
         $script:Executed | Should -BeFalse
-        $script:CallCount | Should -Be 2
-        $script:CapturedMessages[1][1].content[0].type | Should -Be 'tool_use'
-        $script:CapturedMessages[1][2].content[0].type | Should -Be 'tool_result'
-        $script:CapturedMessages[1][2].content[0].tool_use_id | Should -Be 'toolu_decline'
-        $script:CapturedMessages[1][2].content[0].content | Should -Match 'declined'
-        $script:CapturedMessages[1][2].content[0].content | Should -Match 'REMOVE-FILES'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'exact paths that were already shown'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'enumerate the candidate files with a read-only tool'
     }
 
-    It 'requires the exact write confirmation token before executing a destructive tool' {
+    It 'allows Remove-Files after the exact full path was shown earlier in the same request' {
         $script:CallCount = 0
         $script:Executed = $false
+        $script:CapturedMessages = @()
 
         Mock Send-ClawRequest {
             $script:CallCount++
+            $script:CapturedMessages += ,$Messages
 
-            if ($script:CallCount -eq 1) {
-                return [PSCustomObject]@{
-                    Type      = 'tool_call'
-                    ToolName  = 'Remove-Files'
-                    ToolInput = @{ Paths = @('C:\temp\old.log') }
-                    ToolUseId = 'toolu_confirmed'
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_search_first'
+                    }
                 }
-            }
-
-            return [PSCustomObject]@{
-                Type    = 'final_answer'
-                Content = 'handled confirmed delete'
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\old.log') }
+                        ToolUseId = 'toolu_delete_after_search'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'handled evidence-backed delete'
+                    }
+                }
             }
         }
 
@@ -1290,6 +1901,18 @@ Describe 'Loop behavior' {
             -UserGoal 'delete that file' `
             -Tools @(
                 [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+old.log C:\temp\old.log 12.5 2026-04-04
+'@
+                    }
+                }
+                [PSCustomObject]@{
                     Name = 'Remove-Files'
                     Description = 'Deletes files'
                     Risk = 'Write'
@@ -1300,9 +1923,9 @@ Describe 'Loop behavior' {
                     }
                 }
             ) `
-            -MaxSteps 2
+            -MaxSteps 3
 
-        $result | Should -Be 'handled confirmed delete'
+        $result | Should -Be 'handled evidence-backed delete'
         $script:Executed | Should -BeTrue
     }
 
@@ -1489,27 +2112,95 @@ Describe 'Loop behavior' {
             $script:LogEntries += ($Value | ConvertFrom-Json -Depth 10)
         }
 
-        $tool = [PSCustomObject]@{
+        $removeTool = [PSCustomObject]@{
             Name = 'Remove-Files'
             Description = 'Deletes files'
             Risk = 'Write'
             Parameters = @()
             ScriptBlock = { 'deleted' }
         }
+        $searchTool = [PSCustomObject]@{
+            Name = 'Search-Files'
+            Description = 'Searches files'
+            Risk = 'ReadOnly'
+            Parameters = @()
+            ScriptBlock = {
+                @'
+Name Path SizeMB DateModified
+old.log C:\temp\old.log 12.5 2026-04-04
+'@
+            }
+        }
 
-        $null = Invoke-ClawLoop -UserGoal 'inspect Downloads and tell me what looks safe to remove' -Tools @($tool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
+        $null = Invoke-ClawLoop -UserGoal 'inspect Downloads and tell me what looks safe to remove' -Tools @($removeTool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
         @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'blocked' -and $_.Reason -eq 'write_policy_blocked' }).Count | Should -Be 1
 
         $script:LogEntries = @()
         $script:CallCount = 0
         $script:ReadHostResponse = 'nope'
-        $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($tool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_write_gate_search_decline'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\old.log') }
+                        ToolUseId = 'toolu_write_gate_decline'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'done'
+                    }
+                }
+            }
+        }
+        $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($searchTool, $removeTool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 3
         @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'declined' -and $_.Reason -eq 'confirmation_declined' }).Count | Should -Be 1
 
         $script:LogEntries = @()
         $script:CallCount = 0
         $script:ReadHostResponse = 'REMOVE-FILES'
-        $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($tool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_write_gate_search_confirm'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\old.log') }
+                        ToolUseId = 'toolu_write_gate_confirm'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'done'
+                    }
+                }
+            }
+        }
+        $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($searchTool, $removeTool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 3
         @($script:LogEntries | Where-Object { $_.Event -eq 'tool_confirmed' -and $_.Outcome -eq 'confirmed' }).Count | Should -Be 1
         @($script:LogEntries | Where-Object { $_.Event -eq 'tool_result' -and $_.Outcome -eq 'executed_success' }).Count | Should -Be 1
     }

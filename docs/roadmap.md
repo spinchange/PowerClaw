@@ -47,7 +47,8 @@ Adding or enabling tools should be straightforward without weakening safety.
 - Decide whether the structured log contract should expand beyond the current
   minimal supported subset.
 - Keep live provider verification easy to run while preserving the fast offline
-  default suite.
+  default suite, and keep provider account-state failures diagnosable when a key,
+  quota, or billing issue blocks verification.
 
 ### Priority 2: keep setup and onboarding sharp
 
@@ -94,6 +95,11 @@ Adding or enabling tools should be straightforward without weakening safety.
   includes an overlay install helper for one-machine activation.
 - Tool-contract regression coverage now includes metadata parsing, defaults,
   enums, ranges, switch typing, and overlay activation behavior.
+- Provider regression coverage now includes offline tool-result roundtrips for
+  both Claude and OpenAI, and the live smoke path now verifies final-answer,
+  tool-call, and follow-up tool-result flows.
+- Claude and OpenAI live smoke are now both verified successfully against the
+  real provider paths.
 
 ## Longer-term bets
 

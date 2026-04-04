@@ -15,15 +15,19 @@ Impact:
 - core product value still depends on an extra runtime dependency
 - can still fail in constrained hosts that block headless browser launch, even after install
 
-### Provider live roundtrip coverage is still manual
+### Provider live verification is still opt-in rather than part of default verification
 
-The automated suite covers provider payload translation and parsing offline, and
-the repo now includes an opt-in live smoke script, but real Anthropic and OpenAI
-calls are still not exercised by default CI or the default local suite.
+The automated suite now covers provider payload translation, follow-up
+`tool_result` roundtrips, and an opt-in live smoke path more thoroughly than
+before. Both Claude and OpenAI live smoke have now been verified successfully,
+but that live verification is still not part of default CI or the default local
+suite.
 
 Impact:
 - safer refactors
-- but live API compatibility still needs occasional manual verification
+- both provider adapters now have credible live verification
+- but provider compatibility can still drift later unless someone reruns the opt-in smoke checks
+- provider setup failures can still look like product breakage until diagnosed
 
 ### Real answer quality still depends heavily on provider behavior
 

@@ -96,6 +96,83 @@ function Test-ClawExplicitWriteIntent {
     return $false
 }
 
+function Test-ClawHealthCheckGoal {
+    param(
+        [string]$UserGoal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserGoal)) {
+        return $false
+    }
+
+    return (
+        $UserGoal -match '\bfull system health check\b' -or
+        $UserGoal -match '\bmachine health\b' -or
+        $UserGoal -match '\bfull health check\b' -or
+        $UserGoal -match '\bdiagnostic\b' -or
+        $UserGoal -match "\bwhat'?s eating my cpu\b" -or
+        $UserGoal -match '\bcpu\b' -or
+        $UserGoal -match '\bmemory\b' -or
+        $UserGoal -match '\bram\b'
+    )
+}
+
+function Test-ClawCleanupGoal {
+    param(
+        [string]$UserGoal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserGoal)) {
+        return $false
+    }
+
+    return (
+        $UserGoal -match '\bdownloads\b' -or
+        $UserGoal -match '\bbiggest files\b' -or
+        $UserGoal -match '\blargest files\b' -or
+        $UserGoal -match '\bcleanup\b' -or
+        $UserGoal -match '\bclean up\b' -or
+        $UserGoal -match '\bwhat should i clean\b' -or
+        $UserGoal -match '\bwhat looks safe to remove\b'
+    )
+}
+
+function Test-ClawDeleteTargetsWerePreviouslyEnumerated {
+    param(
+        [array]$Messages,
+        [hashtable]$ToolInput
+    )
+
+    if (-not $ToolInput -or -not $ToolInput.ContainsKey('Paths')) {
+        return $false
+    }
+
+    $requestedPaths = @($ToolInput.Paths | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($requestedPaths.Count -eq 0) {
+        return $false
+    }
+
+    $priorToolResultText = @($Messages | Where-Object {
+        $_.role -eq 'user' -and
+        $_.content -is [array] -and
+        $_.content[0].type -eq 'tool_result'
+    } | ForEach-Object {
+        [string]$_.content[0].content
+    }) -join "`n"
+
+    if ([string]::IsNullOrWhiteSpace($priorToolResultText)) {
+        return $false
+    }
+
+    foreach ($path in $requestedPaths) {
+        if ($priorToolResultText -notmatch [regex]::Escape([string]$path)) {
+            return $false
+        }
+    }
+
+    return $true
+}
+
 function Add-ClawToolResultTurn {
     param(
         [array]$Messages,
@@ -240,7 +317,8 @@ gpu-driver.exe 402345678 2026-03-18 False
 
 function Get-ClawWorkflowPromptHints {
     param(
-        [string]$UserGoal
+        [string]$UserGoal,
+        [array]$Tools
     )
 
     if ([string]::IsNullOrWhiteSpace($UserGoal)) {
@@ -249,28 +327,51 @@ function Get-ClawWorkflowPromptHints {
 
     $normalizedGoal = $UserGoal.ToLowerInvariant()
     $hints = [System.Collections.Generic.List[string]]::new()
+    $availableToolNames = @($Tools | ForEach-Object {
+        if ($_.Name) { [string]$_.Name }
+    })
 
     if (
-        $normalizedGoal -match '\bfull system health check\b' -or
-        $normalizedGoal -match '\bmachine health\b' -or
-        $normalizedGoal -match '\bfull health check\b' -or
-        $normalizedGoal -match '\bdiagnostic\b'
+        Test-ClawHealthCheckGoal -UserGoal $UserGoal
     ) {
+        $healthFollowUps = @(
+            'Get-StorageStatus',
+            'Get-NetworkStatus',
+            'Get-ServiceStatus',
+            'Get-EventLogEntries'
+        ) | Where-Object { $_ -in $availableToolNames }
+
         $hints.Add('WORKFLOW HINT: For health-check or diagnostic prompts, it is good to combine a few complementary tools before answering. Prefer a concise chain across system summary, storage, network, services, or recent event issues when those signals materially improve the answer.')
+        if ('Get-SystemSummary' -in $availableToolNames -and $healthFollowUps.Count -gt 0) {
+            $hints.Add("WORKFLOW HINT: For a full health check, start with Get-SystemSummary and usually add at least one complementary tool before answering. Available follow-up signals here: $($healthFollowUps -join ', '). Do not stop after one tool if those extra signals would materially improve confidence.")
+        }
+        $hints.Add('WORKFLOW HINT: Speed matters. A normal health check should usually finish in 1 to 3 tool calls, not a long chain.')
+        $hints.Add('WORKFLOW HINT: Prefer a fast first answer. Only add more tools when the earlier result suggests something abnormal, ambiguous, or worth confirming.')
+        $hints.Add('WORKFLOW HINT: For most health checks, prefer system summary first, then storage or event issues if needed. Only pull services or network details when the earlier signals suggest a real problem there.')
         $hints.Add('WORKFLOW HINT: For a health check final answer, synthesize into a short operator summary: overall status first, then the most important issues, then concrete next checks if needed.')
         $hints.Add('WORKFLOW HINT: Health-check answers should feel like an operator readout, not a tool dump. Lead with whether the machine looks healthy, degraded, or needs attention.')
+        $hints.Add('WORKFLOW HINT: Health-check final answers should usually follow this structure: Overall status, Key findings, Why it matters, Next checks. If nothing looks urgent, say that explicitly instead of sounding alarmed.')
+        $hints.Add('WORKFLOW HINT: Do not end a health check with a raw metric dump. Interpret the CPU, memory, storage, network, or service signals into a short operational judgment.')
     }
 
-    if (
-        $normalizedGoal -match '\bdownloads\b' -or
-        $normalizedGoal -match '\bbiggest files\b' -or
-        $normalizedGoal -match '\bcleanup\b' -or
-        $normalizedGoal -match '\bclean up\b' -or
-        $normalizedGoal -match '\bwhat should i clean\b'
-    ) {
+    if (Test-ClawCleanupGoal -UserGoal $UserGoal) {
+        $cleanupContextTools = @(
+            'Get-DirectoryListing',
+            'Read-FileContent'
+        ) | Where-Object { $_ -in $availableToolNames }
+
         $hints.Add('WORKFLOW HINT: For cleanup and biggest-file prompts, it is acceptable to chain discovery plus context. Find the likely cleanup targets first, then summarize what they are, how large they are, and what you would review before deletion.')
+        if ('Search-Files' -in $availableToolNames) {
+            $hints.Add('WORKFLOW HINT: For a normal cleanup prompt, start with Search-Files or another broad discovery tool so the first answer arrives quickly.')
+        }
+        if ($cleanupContextTools.Count -gt 0) {
+            $hints.Add("WORKFLOW HINT: Add context tools such as $($cleanupContextTools -join ', ') only when the first discovery result leaves real ambiguity about what the files are or whether they are worth reviewing.")
+        }
+        $hints.Add('WORKFLOW HINT: Speed matters here too. A normal cleanup answer should usually finish in 1 to 2 tool calls.')
         $hints.Add('WORKFLOW HINT: Cleanup answers should not stop at raw listings. Include a short recommendation section such as what looks safe to review, what is ambiguous, and whether the user should preview or confirm anything.')
         $hints.Add('WORKFLOW HINT: Cleanup final answers should usually follow this order: what I found, what looks worth reviewing, what is ambiguous or risky, then the next safe action.')
+        $hints.Add('WORKFLOW HINT: Do not recommend deletion just because a file is large. Distinguish large-but-likely-intentional files from obvious disposable installers, duplicates, or stale downloads when the evidence supports that distinction.')
+        $hints.Add('WORKFLOW HINT: If the evidence is thin, say "worth reviewing" rather than "safe to delete."')
     }
 
     if (
@@ -307,7 +408,7 @@ function Invoke-ClawLoop {
         [switch]$UseStub
     )
 
-    $workflowHints = Get-ClawWorkflowPromptHints -UserGoal $UserGoal
+    $workflowHints = Get-ClawWorkflowPromptHints -UserGoal $UserGoal -Tools $Tools
     $systemPrompt = @"
 You are PowerClaw, a Windows automation agent running on PowerShell 7.
 You have access to the provided tools. Use them to accomplish the user's goal.
@@ -319,6 +420,7 @@ RULES:
 - Use the minimum number of tool calls necessary. One tool call is usually enough — answer immediately from its output rather than gathering more data from additional tools.
 - Do not call the same tool twice with different parameters unless the user explicitly asked for multiple queries.
 - When the user's workflow clearly needs synthesis across multiple signals, a short multi-tool chain is better than a thin single-tool answer.
+- In a final answer, interpret the tool results for the user. Do not just restate tool names, raw headings, or a loose metric dump.
 
 ENVIRONMENT:
 - Username: $env:USERNAME
@@ -341,9 +443,13 @@ $workflowHints
     $messages = @(@{ role = "user"; content = $UserGoal })
     $seenToolCalls = @{}
     $userExplicitlyRequestedWrite = Test-ClawExplicitWriteIntent -UserGoal $UserGoal
+    $isHealthCheckGoal = Test-ClawHealthCheckGoal -UserGoal $UserGoal
+    $isCleanupGoal = Test-ClawCleanupGoal -UserGoal $UserGoal
     $planSteps = [System.Collections.Generic.List[object]]::new()
     $planSummary = $null
     $maxPlanPreviewSteps = [Math]::Min($MaxSteps, 3)
+    $maxHealthCheckToolCalls = 3
+    $executedReadOnlyToolCount = 0
 
     for ($step = 1; $step -le $MaxSteps; $step++) {
         Write-Host "`n[Step $step/$MaxSteps]" -ForegroundColor DarkGray
@@ -486,6 +592,50 @@ $workflowHints
 
             $seenToolCalls[$toolCallFingerprint] = $true
 
+            if (
+                -not $Plan -and
+                $isHealthCheckGoal -and
+                $tool.Risk -eq 'ReadOnly' -and
+                $executedReadOnlyToolCount -ge $maxHealthCheckToolCalls
+            ) {
+                $toolResult = "Health-check latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this health check. Answer now from the signals already gathered unless the user explicitly asks for deeper investigation."
+                Write-Host "[Latency] Health-check tool budget reached; asking model to answer from current signals." -ForegroundColor Yellow
+                Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                    Event      = 'tool_skipped'
+                    Step       = $step
+                    Outcome    = 'blocked'
+                    Tool       = $toolName
+                    ToolUseId  = $response.ToolUseId
+                    Reason     = 'health_check_latency_budget_reached'
+                    UserGoal   = $UserGoal
+                    ToolCount  = $executedReadOnlyToolCount
+                }
+                $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
+                continue
+            }
+
+            if (
+                -not $Plan -and
+                $isCleanupGoal -and
+                $tool.Risk -eq 'ReadOnly' -and
+                $executedReadOnlyToolCount -ge 2
+            ) {
+                $toolResult = "Cleanup latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this cleanup request. Answer now from the files and context already gathered unless the user explicitly asks for deeper inspection."
+                Write-Host "[Latency] Cleanup tool budget reached; asking model to answer from current signals." -ForegroundColor Yellow
+                Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                    Event      = 'tool_skipped'
+                    Step       = $step
+                    Outcome    = 'blocked'
+                    Tool       = $toolName
+                    ToolUseId  = $response.ToolUseId
+                    Reason     = 'cleanup_latency_budget_reached'
+                    UserGoal   = $UserGoal
+                    ToolCount  = $executedReadOnlyToolCount
+                }
+                $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
+                continue
+            }
+
             if ($Plan) {
                 $planSteps.Add([PSCustomObject]@{
                     Tool = $toolName
@@ -523,6 +673,27 @@ $workflowHints
                         Tool       = $toolName
                         ToolUseId  = $response.ToolUseId
                         Reason     = 'write_policy_blocked'
+                        Risk       = $tool.Risk
+                        Args       = $toolInput
+                        UserGoal   = $UserGoal
+                    }
+                    $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
+                    continue
+                }
+
+                if (
+                    $toolName -eq 'Remove-Files' -and
+                    -not (Test-ClawDeleteTargetsWerePreviouslyEnumerated -Messages $messages -ToolInput $toolInput)
+                ) {
+                    $toolResult = "Blocked by write policy: Remove-Files may only run on exact paths that were already shown in earlier read-only results during this request. First enumerate the candidate files with a read-only tool, then ask again with those same full paths."
+                    Write-Host "[Blocked] $toolName requires evidence-backed file targets before deletion." -ForegroundColor Yellow
+                    Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                        Event      = 'tool_skipped'
+                        Step       = $step
+                        Outcome    = 'blocked'
+                        Tool       = $toolName
+                        ToolUseId  = $response.ToolUseId
+                        Reason     = 'write_targets_not_previously_enumerated'
                         Risk       = $tool.Risk
                         Args       = $toolInput
                         UserGoal   = $UserGoal
@@ -612,6 +783,9 @@ $workflowHints
                 }
 
                 $durationMs = [int]((Get-Date) - $startedAt).TotalMilliseconds
+                if ($tool.Risk -eq 'ReadOnly' -and $toolStatus -eq 'success') {
+                    $executedReadOnlyToolCount++
+                }
             }
 
             Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
