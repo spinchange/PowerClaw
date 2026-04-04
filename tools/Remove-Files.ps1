@@ -26,35 +26,36 @@ function Remove-Files {
     $notFound = @()
 
     foreach ($path in $Paths) {
-        $path = [System.Environment]::ExpandEnvironmentVariables($path)
+        $expandedPath = [System.Environment]::ExpandEnvironmentVariables($path)
 
-        if (-not (Test-Path $path -PathType Leaf)) {
-            $notFound += $path
+        if (-not (Test-Path -LiteralPath $expandedPath -PathType Leaf)) {
+            $notFound += $expandedPath
             continue
         }
 
-        $file = Get-Item $path
+        $file = Get-Item -LiteralPath $expandedPath -ErrorAction Stop
         $sizeMB = [math]::Round($file.Length / 1MB, 2)
+        $resolvedPath = $file.FullName
 
         try {
             if ($Permanent) {
-                Remove-Item -Path $path -Force -ErrorAction Stop
+                Remove-Item -LiteralPath $resolvedPath -Force -ErrorAction Stop
             } else {
                 [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(
-                    $path,
+                    $resolvedPath,
                     [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
                     [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
                 )
             }
             $deleted += [PSCustomObject]@{
-                Path      = $path
+                Path      = $resolvedPath
                 SizeMB    = $sizeMB
                 Permanent = $Permanent
             }
         }
         catch {
             $failed += [PSCustomObject]@{
-                Path  = $path
+                Path  = $resolvedPath
                 Error = $_.Exception.Message
             }
         }

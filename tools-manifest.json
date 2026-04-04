@@ -9,12 +9,12 @@
     "Fetch-WebPage",
     "Get-NetworkStatus",
     "Get-StorageStatus",
-    "Get-SystemSummary",
     "Get-ServiceStatus",
-    "Search-MyJoNotes",
-    "Search-MnVault",
     "Remove-Files",
     "Get-NetworkUsage"
   ],
-  "disabled_tools": []
+  "disabled_tools": [
+    "Search-MyJoNotes",
+    "Search-MnVault"
+  ]
 }

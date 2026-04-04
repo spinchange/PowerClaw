@@ -34,12 +34,30 @@ function Search-Files {
         [bool]$Aggregate = $false
     )
 
-    $where = @("SCOPE='file:$Scope'")
+    function ConvertTo-SearchSqlLiteral {
+        param([string]$Value)
+        return $Value -replace "'", "''"
+    }
 
-    if ($FileName)     { $where += "System.FileName LIKE '$($FileName -replace '\*','%')'" }
-    if ($Extension)    { $where += "System.FileExtension = '.$($Extension.TrimStart('.'))'" }
-    if ($Kind)         { $where += "System.Kind = '$Kind'" }
-    if ($ContentQuery) { $where += "CONTAINS(System.Search.Contents, '$ContentQuery')" }
+    $scopeLiteral = ConvertTo-SearchSqlLiteral "file:$Scope"
+    $where = @("SCOPE='$scopeLiteral'")
+
+    if ($FileName) {
+        $fileNamePattern = ConvertTo-SearchSqlLiteral ($FileName -replace '\*', '%')
+        $where += "System.FileName LIKE '$fileNamePattern'"
+    }
+    if ($Extension) {
+        $extensionLiteral = ConvertTo-SearchSqlLiteral ".$($Extension.TrimStart('.'))"
+        $where += "System.FileExtension = '$extensionLiteral'"
+    }
+    if ($Kind) {
+        $kindLiteral = ConvertTo-SearchSqlLiteral $Kind
+        $where += "System.Kind = '$kindLiteral'"
+    }
+    if ($ContentQuery) {
+        $contentLiteral = ConvertTo-SearchSqlLiteral $ContentQuery
+        $where += "CONTAINS(System.Search.Contents, '$contentLiteral')"
+    }
     if ($MinSizeMB -gt 0) { $where += "System.Size >= $($MinSizeMB * 1MB)" }
 
     $sortCol = switch ($SortBy) {
@@ -48,8 +66,12 @@ function Search-Files {
         'Name'         { 'System.ItemName ASC' }
     }
 
-    $sql = "SELECT System.ItemName, System.ItemPathDisplay, System.Size, System.DateModified " +
+    $topClause = if ($Aggregate) { "" } else { "TOP $Limit " }
+    $sql = "SELECT ${topClause}System.ItemName, System.ItemPathDisplay, System.Size, System.DateModified " +
            "FROM SystemIndex WHERE $($where -join ' AND ') ORDER BY $sortCol"
+
+    $conn = $null
+    $adapter = $null
 
     try {
         $conn = New-Object System.Data.OleDb.OleDbConnection(
@@ -61,10 +83,20 @@ function Search-Files {
         $adapter = New-Object System.Data.OleDb.OleDbDataAdapter($cmd)
         $ds      = New-Object System.Data.DataSet
         $adapter.Fill($ds) | Out-Null
-        $conn.Close()
     }
     catch {
         throw "Windows Search query failed: $_"
+    }
+    finally {
+        if ($conn) {
+            if ($conn.State -ne [System.Data.ConnectionState]::Closed) {
+                $conn.Close()
+            }
+            $conn.Dispose()
+        }
+        if ($adapter) {
+            $adapter.Dispose()
+        }
     }
 
     if ($Aggregate) {
@@ -79,7 +111,7 @@ function Search-Files {
         }
     }
     else {
-        $ds.Tables[0] | Select-Object -First $Limit | ForEach-Object {
+        $ds.Tables[0].Rows | ForEach-Object {
             [PSCustomObject]@{
                 Name         = $_['SYSTEM.ITEMNAME']
                 Path         = $_['SYSTEM.ITEMPATHDISPLAY']

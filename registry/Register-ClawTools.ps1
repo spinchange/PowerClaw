@@ -15,7 +15,16 @@ function Register-ClawTools {
         return @()
     }
 
-    $approved = $manifest.approved_tools
+    $approved = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($toolName in @($manifest.approved_tools)) {
+        if ($toolName) { [void]$approved.Add($toolName) }
+    }
+
+    $disabled = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($toolName in @($manifest.disabled_tools)) {
+        if ($toolName) { [void]$disabled.Add($toolName) }
+    }
+
     $registry = @()
 
     foreach ($file in Get-ChildItem "$ToolsPath\*.ps1") {
@@ -27,8 +36,12 @@ function Register-ClawTools {
         $risk = if ($content -match '\.CLAW_RISK\s+(\S+)') { $Matches[1] } else { 'ReadOnly' }
 
         # Check allowlist
-        if ($name -notin $approved) {
+        if (-not $approved.Contains($name)) {
             Write-Verbose "Skipping unapproved tool: $name"
+            continue
+        }
+        if ($disabled.Contains($name)) {
+            Write-Verbose "Skipping disabled tool: $name"
             continue
         }
 

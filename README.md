@@ -2,16 +2,16 @@
 
 **PowerShell Command-Line Agentic Workbench** &nbsp;·&nbsp; [🌐 spinchange.github.io/PowerClaw](https://spinchange.github.io/PowerClaw/)
 
-A Windows-native agentic automation framework built on PowerShell 7. You describe what you want in plain English — PowerClaw uses Claude to pick the right tool, runs it on your machine, and returns a human-readable answer.
+A Windows-native agentic automation framework built on PowerShell 7. You describe what you want in plain English — PowerClaw uses a configured LLM provider to pick the right tool, runs it on your machine, and returns a human-readable answer.
 
-Claude never generates raw PowerShell. It picks from a registry of approved, auditable tools you control.
+The model never generates raw PowerShell. It picks from a registry of approved, auditable tools you control.
 
 ---
 
 ## Requirements
 
 - PowerShell 7+
-- [Anthropic API key](https://console.anthropic.com)
+- Anthropic or OpenAI API key
 - Windows 10/11
 
 ## Setup
@@ -29,6 +29,9 @@ $env:CLAUDE_API_KEY = 'sk-ant-...'
 
 To persist across sessions, add it to your PowerShell profile.
 
+If you want to use OpenAI instead, set `config.json` to `"provider": "openai"`,
+choose an OpenAI-compatible model, and point `api_key_env` at your OpenAI key env var.
+
 **3. Import the module**
 ```powershell
 Import-Module .\PowerClaw.psd1
@@ -37,6 +40,22 @@ Import-Module .\PowerClaw.psd1
 **4. Run a prompt**
 ```powershell
 Invoke-PowerClaw -Prompt "What are the top 5 processes by memory?"
+```
+
+## Optional: Persistent local install
+
+If you keep source repos under `C:\dev\repos`, install the module into a separate
+PowerShell module root instead of importing from the repo directly:
+
+```powershell
+pwsh -File .\Install-PowerClaw.ps1 -ModuleRoot C:\dev\powershell-modules
+```
+
+Then add `C:\dev\powershell-modules` to `PSModulePath` in your PowerShell profile
+and import normally:
+
+```powershell
+Import-Module PowerClaw
 ```
 
 ---
@@ -73,6 +92,22 @@ Invoke-PowerClaw -UseStub -Prompt "anything"
 Invoke-PowerClaw -Verbose -Prompt "What's eating my CPU?"
 ```
 
+## Tests
+
+PowerClaw now uses a Pester 5 suite.
+
+Run the repo test suite with:
+
+```powershell
+pwsh -File .\Run-Tests.ps1
+```
+
+If Pester 5.7.1 is not installed yet:
+
+```powershell
+Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
+```
+
 ---
 
 ## Tools
@@ -92,6 +127,8 @@ Invoke-PowerClaw -Verbose -Prompt "What's eating my CPU?"
 | `Fetch-WebPage` | Web | Fetch any URL, returns clean text |
 | `Search-MyJoNotes` | Personal | Search MyJo journal notebooks |
 | `Search-MnVault` | Personal | Search mnvault markdown notes |
+
+The `Personal` tools are machine-specific integrations. If those paths are not present on your machine, leave them out of `tools-manifest.json`.
 
 ### Adding your own tools
 

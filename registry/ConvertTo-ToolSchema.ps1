@@ -21,9 +21,10 @@ function ConvertTo-ClaudeToolSchema {
         name         = $Tool.Name
         description  = $Tool.Description
         input_schema = @{
-            type       = "object"
-            properties = $properties
-            required   = $required
+            type                 = "object"
+            properties           = $properties
+            required             = $required
+            additionalProperties = $false
         }
     }
 }

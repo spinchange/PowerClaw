@@ -16,8 +16,13 @@ function Get-TopProcesses {
         [ValidateRange(1, 50)]
         [int]$Count = 5
     )
+    $sortProperty = switch ($SortBy) {
+        'CPU'    { 'CPU' }
+        'Memory' { 'WorkingSet64' }
+    }
+
     Get-Process |
-        Sort-Object $SortBy -Descending |
+        Sort-Object $sortProperty -Descending |
         Select-Object -First $Count -Property Name, Id, CPU, @{
             Name = 'MemoryMB'
             Expression = { [math]::Round($_.WorkingSet64 / 1MB, 1) }

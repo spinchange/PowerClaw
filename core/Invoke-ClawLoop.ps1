@@ -98,8 +98,23 @@ ENVIRONMENT:
 
             if (-not $tool) {
                 Write-Host "[Error] Claude requested '$toolName' but it's not in your approved tools. Check tools-manifest.json." -ForegroundColor Red
-                $messages += @{ role = "assistant"; content = ($response | ConvertTo-Json -Depth 5 -Compress) }
-                $messages += @{ role = "user"; content = "Error: tool '$toolName' is not available." }
+                $messages += @{
+                    role = "assistant"
+                    content = @(@{
+                        type  = "tool_use"
+                        id    = $response.ToolUseId
+                        name  = $toolName
+                        input = $toolInput
+                    })
+                }
+                $messages += @{
+                    role = "user"
+                    content = @(@{
+                        type        = "tool_result"
+                        tool_use_id = $response.ToolUseId
+                        content     = "Error: tool '$toolName' is not available."
+                    })
+                }
                 continue
             }
 
