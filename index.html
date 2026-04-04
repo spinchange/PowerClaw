@@ -518,7 +518,7 @@
   <h1><span class="ps">Power</span><span class="claw">Claw</span></h1>
   <p class="hero-sub">
     Built for Windows power users, solo operators, and technical builders who want local automation without unrestricted shell generation.<br>
-    <strong>Describe the task. PowerClaw picks an approved tool. PowerShell runs it.</strong>
+    <strong>Describe the task. PowerClaw previews or runs an approved tool chain, then returns an operator-style answer.</strong>
   </p>
   <ul class="hero-points">
     <li><strong>Safe by design.</strong> PowerClaw does not generate arbitrary shell commands.</li>
@@ -590,7 +590,7 @@
     </div>
     <div class="story-card">
       <h3>Human remains in control</h3>
-      <p><strong>PowerClaw is optimized for inspectable automation.</strong> Preview with <code>-Plan</code>, block writes with <code>-DryRun</code>, require confirmation for destructive tools, and inspect the results.</p>
+      <p><strong>PowerClaw is optimized for inspectable automation.</strong> Preview a short intended tool chain with <code>-Plan</code>, block writes with <code>-DryRun</code>, require confirmation for destructive tools, and inspect the results.</p>
     </div>
   </div>
 </section>
@@ -886,11 +886,11 @@ powerclaw <span class="string">"Summarize https://news.ycombinator.com"</span></
     </div>
     <div class="trust-card">
       <h3>Preview mode</h3>
-      <p><code>-Plan</code> shows a short intended tool chain before execution. It is a fast way to inspect intent before running anything.</p>
+      <p><code>-Plan</code> shows a short intended tool chain before execution. Health checks and cleanup prompts can preview multiple planned steps instead of only the first tool.</p>
     </div>
     <div class="trust-card">
       <h3>Stub mode and logs</h3>
-      <p><code>-UseStub</code> lets you test the flow without API keys, and each run remains inspectable for debugging and review.</p>
+      <p><code>-UseStub</code> gives a believable no-key demo path for the flagship workflows, and each run remains inspectable for debugging and review.</p>
     </div>
   </div>
 </section>
@@ -906,25 +906,25 @@ powerclaw <span class="string">"Summarize https://news.ycombinator.com"</span></
   <div class="story-grid">
     <div class="story-card">
       <h3>1. Machine triage</h3>
-      <p><strong>Use PowerClaw when your machine feels wrong and you want a fast, inspectable answer.</strong> Ask about CPU pressure, memory load, service failures, reboot timing, network state, and recent event log issues.</p>
+      <p><strong>Use PowerClaw when your machine feels wrong and you want a fast, inspectable answer.</strong> Ask about CPU pressure, memory load, service failures, reboot timing, network state, and recent event log issues. The goal is one operator summary, not a pile of tool output.</p>
       <pre>powerclaw <span class="string">"Give me a full system health check"</span></pre>
     </div>
 
     <div class="story-card">
       <h3>2. File and storage cleanup</h3>
-      <p><strong>Use PowerClaw to find the junk before you remove it.</strong> Search indexed files, inspect directory contents, identify large or stale items, then use preview or confirmation before anything destructive happens.</p>
+      <p><strong>Use PowerClaw to find the junk before you remove it.</strong> Search indexed files, inspect directory contents, identify large or stale items, then get a review-oriented answer about what looks worth checking before anything destructive happens.</p>
       <pre>powerclaw -Plan <span class="string">"Find the 10 biggest files in Downloads"</span></pre>
     </div>
 
     <div class="story-card">
       <h3>3. Read and investigate</h3>
-      <p><strong>Use PowerClaw when the answer sits across a webpage, config, or log file.</strong> Fetch readable page text as a first-class tool, inspect local files, and connect what you read back to Windows state.</p>
+      <p><strong>Use PowerClaw when the answer sits across a webpage, config, or log file.</strong> Fetch readable page text as a first-class tool, inspect local files, and get a plain-English summary with the relevant implications.</p>
       <pre>powerclaw <span class="string">"Read config.json and explain my settings"</span></pre>
     </div>
   </div>
 
   <div class="tools-note">
-    <strong>Useful flags:</strong> <code>-Plan</code> previews intent, <code>-DryRun</code> skips write tools, <code>-Verbose</code> exposes raw API traffic, and <code>-UseStub</code> tests the loop without an API key.
+    <strong>Useful flags:</strong> <code>-Plan</code> previews a short chain, <code>-DryRun</code> skips write tools, <code>-Verbose</code> exposes raw API traffic, and <code>-UseStub</code> demos the loop without an API key.
   </div>
 </section>
 
