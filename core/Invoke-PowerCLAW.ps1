@@ -43,6 +43,7 @@ function Invoke-PowerClaw {
     $result = Invoke-ClawLoop `
         -UserGoal $Prompt `
         -Tools $tools `
+        -Config $config `
         -MaxSteps $config.max_steps `
         -DryRun:$DryRun `
         -Plan:$Plan `

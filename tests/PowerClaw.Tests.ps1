@@ -6,6 +6,8 @@ BeforeAll {
 
     . (Join-Path $script:RepoRoot 'registry\Register-ClawTools.ps1')
     . (Join-Path $script:RepoRoot 'registry\ConvertTo-ToolSchema.ps1')
+    . (Join-Path $script:RepoRoot 'core\Invoke-ClawLoop.ps1')
+    . (Join-Path $script:RepoRoot 'client\Send-ClawRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-OpenAiRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-ClaudeRequest.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-TopProcesses.ps1')
@@ -301,5 +303,257 @@ Describe 'Providers' {
         $result.Type | Should -Be 'tool_call'
         $result.ToolName | Should -Be 'Search-Files'
         $result.ToolInput.Limit | Should -Be 10
+    }
+}
+
+Describe 'Loop behavior' {
+    It 'feeds back unavailable-tool errors as proper tool_result turns and continues' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Get-NotApproved'
+                    ToolInput = @{ Path = 'C:\temp' }
+                    ToolUseId = 'toolu_missing'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled unavailable tool'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'do something' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Be 'handled unavailable tool'
+        $script:CallCount | Should -Be 2
+        $script:CapturedMessages[1].Count | Should -Be 3
+        $script:CapturedMessages[1][1].role | Should -Be 'assistant'
+        $script:CapturedMessages[1][1].content[0].type | Should -Be 'tool_use'
+        $script:CapturedMessages[1][1].content[0].name | Should -Be 'Get-NotApproved'
+        $script:CapturedMessages[1][2].role | Should -Be 'user'
+        $script:CapturedMessages[1][2].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[1][2].content[0].tool_use_id | Should -Be 'toolu_missing'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'not available'
+    }
+
+    It 'returns a dry-run tool_result without invoking the write tool' {
+        $script:CallCount = 0
+        $script:Executed = $false
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Remove-Files'
+                    ToolInput = @{ Paths = @('C:\temp\old.log') }
+                    ToolUseId = 'toolu_dryrun'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled dry run'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'should not run'
+                    }
+                }
+            ) `
+            -MaxSteps 2 `
+            -DryRun
+
+        $result | Should -Be 'handled dry run'
+        $script:Executed | Should -BeFalse
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'dry run'
+    }
+
+    It 'reports user decline as a proper tool_result turn and does not invoke the write tool' {
+        $script:CallCount = 0
+        $script:Executed = $false
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Remove-Files'
+                    ToolInput = @{ Paths = @('C:\temp\old.log') }
+                    ToolUseId = 'toolu_decline'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled decline'
+            }
+        }
+
+        Mock Read-Host { 'N' }
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'should not run'
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Be 'handled decline'
+        $script:Executed | Should -BeFalse
+        $script:CallCount | Should -Be 2
+        $script:CapturedMessages[1][1].content[0].type | Should -Be 'tool_use'
+        $script:CapturedMessages[1][2].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[1][2].content[0].tool_use_id | Should -Be 'toolu_decline'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'declined'
+    }
+
+    It 'feeds tool execution failures back as tool_result errors and continues' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Get-TopProcesses'
+                    ToolInput = @{ SortBy = 'CPU' }
+                    ToolUseId = 'toolu_fail'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled failure'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'do something' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { throw 'boom' }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Be 'handled failure'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'Get-TopProcesses failed'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'Do not retry'
+    }
+
+    It 'truncates oversized tool output once and sends the truncation instruction back' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+        $script:Warnings = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            if ($script:CallCount -eq 1) {
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Get-TopProcesses'
+                    ToolInput = @{ SortBy = 'CPU' }
+                    ToolUseId = 'toolu_big'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'handled truncation'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+        Mock Write-Warning {
+            $script:Warnings += $Message
+        }
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'do something' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ' }
+                }
+            ) `
+            -Config ([PSCustomObject]@{
+                max_output_chars = 40
+                log_file = 'powerclaw.log'
+            }) `
+            -MaxSteps 2
+
+        $result | Should -Be 'handled truncation'
+        $script:Warnings.Count | Should -Be 1
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'truncated'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'Do not call this tool again'
     }
 }

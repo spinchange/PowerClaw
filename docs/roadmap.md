@@ -51,6 +51,7 @@ Adding or enabling tools should be straightforward without weakening safety.
 
 - Expand tests around `Invoke-ClawLoop`, especially unavailable-tool handling,
   write confirmations, and multi-step behavior.
+- Keep CI enforcing the supported test entrypoint on Windows.
 - Improve log clarity and decide whether the log format is part of the supported
   product surface.
 - Strengthen safety around destructive tools beyond a single Y/N prompt where

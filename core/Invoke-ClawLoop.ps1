@@ -8,6 +8,8 @@ function Invoke-ClawLoop {
 
         [array]$Tools,
 
+        [object]$Config,
+
         [int]$MaxSteps = 8,
 
         [switch]$DryRun,
@@ -37,9 +39,11 @@ ENVIRONMENT:
 - Computer: $env:COMPUTERNAME
 "@
 
-    $config = Get-Content (Join-Path $PSScriptRoot '..\config.json') -Raw | ConvertFrom-Json
-    $maxOutputChars = [int]$config.max_output_chars
-    $logPath = Join-Path $PSScriptRoot "..\$($config.log_file)"
+    if (-not $Config) {
+        $Config = Get-Content (Join-Path $PSScriptRoot '..\config.json') -Raw | ConvertFrom-Json
+    }
+    $maxOutputChars = [int]$Config.max_output_chars
+    $logPath = Join-Path $PSScriptRoot "..\$($Config.log_file)"
 
     $toolSchemas = $Tools | ForEach-Object { ConvertTo-ClaudeToolSchema $_ }
     $messages = @(@{ role = "user"; content = $UserGoal })
@@ -145,7 +149,23 @@ ENVIRONMENT:
                     Write-Host "  Args: $($toolInput | ConvertTo-Json -Depth 3 -Compress)"
                     $confirm = Read-Host "  Proceed? (Y/N)"
                     if ($confirm -ne 'Y') {
-                        $messages += @{ role = "user"; content = "User declined to run $toolName." }
+                        $messages += @{
+                            role = "assistant"
+                            content = @(@{
+                                type  = "tool_use"
+                                id    = $response.ToolUseId
+                                name  = $toolName
+                                input = $toolInput
+                            })
+                        }
+                        $messages += @{
+                            role = "user"
+                            content = @(@{
+                                type        = "tool_result"
+                                tool_use_id = $response.ToolUseId
+                                content     = "User declined to run $toolName."
+                            })
+                        }
                         continue
                     }
                 }

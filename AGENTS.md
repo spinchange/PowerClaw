@@ -28,6 +28,8 @@ defined in `tools/` and allowed by `tools-manifest.json`.
   Pester suite and legacy script-style regression tests.
 - `Run-Tests.ps1`
   Supported repo test entrypoint.
+- `.github/workflows/ci.yml`
+  GitHub Actions workflow that runs the supported test suite on Windows.
 - `config.example.json`
   Starter config for provider/model setup.
 
@@ -63,6 +65,8 @@ pwsh -NoProfile -Command "Import-Module .\PowerCLAW.psd1 -Force; Test-PowerClawS
 - The intended framework is Pester `5.7.1` or newer.
 - `Run-Tests.ps1` is written to work in constrained environments by disabling
   Pester `TestRegistry`.
+- GitHub Actions CI should keep calling `Run-Tests.ps1` rather than duplicating
+  test logic in YAML.
 - Keep fast offline tests for provider translation, registry behavior, and tool
   semantics. Avoid making the default suite depend on live API keys or network calls.
 
