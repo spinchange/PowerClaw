@@ -248,7 +248,7 @@ Expected behavior:
 Inputs:
 - CPU below 70%
 - memory below 80%
-- no monitored volume below 15% free
+- no monitored volume below 20% free
 - no unstable allowlisted services
 - no dominant event source at or above 5 warnings or errors
 
@@ -274,7 +274,7 @@ Expected:
 ### 3. Critical low disk
 
 Inputs:
-- one fixed monitored volume with free space `<= 7%`
+- one fixed monitored volume with free space `<= 10%`
 - all other conditions normal
 
 Expected:

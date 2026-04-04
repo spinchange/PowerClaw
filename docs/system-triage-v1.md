@@ -235,8 +235,8 @@ Only these workstation-relevant services may generate `unstable_service` in v1:
 
 - category must be `disk`
 - severity must be:
-  - `warning` if free space on any monitored volume is `<= 15%` and `> 7%`
-  - `critical` if free space is `<= 7%`
+  - `warning` if free space on any monitored volume is `<= 20%` and `> 10%`
+  - `critical` if free space is `<= 10%`
 - only the most severe volume may emit a finding in v1
 - ID must be `low_disk:<volume>` using lowercase drive letter without colon
 

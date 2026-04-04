@@ -21,7 +21,7 @@ If you want a general-purpose cross-platform agent shell, this repo is intention
 ## Top 3 workflows
 
 1. **Machine triage**
-   Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings. PowerClaw should synthesize the important signals into one operator summary, not just echo one tool, and should usually do so in a short 1 to 3 tool pass unless you explicitly want deeper investigation.
+   Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings. PowerClaw now prefers a deterministic bounded system triage first, then follows up with narrower tools only when needed.
 2. **File and storage cleanup**
    Find large files, inspect Downloads, locate old installers, and confirm before delete actions. Cleanup answers should include what was found and what to review next, and should usually finish in a fast 1 to 2 tool pass unless the first result is ambiguous.
 3. **Read and investigate**
@@ -137,6 +137,7 @@ powerclaw "What's eating my CPU?"
 ```powershell
 # Workflow 1: machine triage
 powerclaw "Give me a full system health check"
+Invoke-SystemTriage | ConvertTo-Json -Depth 10
 
 # Workflow 2: file and storage cleanup
 powerclaw -Plan "Find the 10 biggest files in Downloads"
@@ -192,6 +193,7 @@ Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -Sk
 
 | Tool | Category | What it does |
 |------|----------|-------------|
+| `Get-SystemTriage` | SystemInfo | Deterministic bounded workstation-health triage across system, process, service, event, and storage signals |
 | `Get-SystemSummary` | SystemInfo | CPU, RAM, uptime, top processes |
 | `Get-TopProcesses` | SystemInfo | Processes sorted by CPU or memory |
 | `Get-EventLogEntries` | SystemInfo | Windows event log errors and warnings |

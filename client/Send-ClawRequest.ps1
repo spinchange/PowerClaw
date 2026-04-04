@@ -116,13 +116,20 @@ function Send-ClawRequest {
                  $normalizedPrompt -match '\bcpu\b' -or
                  $normalizedPrompt -match '\bram\b' -or
                  $normalizedPrompt -match '\bmemory\b' -or
+                 $normalizedPrompt -match '\bhard drive\b' -or
+                 $normalizedPrompt -match '\bdisk\b' -or
+                 $normalizedPrompt -match '\bstorage\b' -or
+                 $normalizedPrompt -match '\bdrive space\b' -or
                  $normalizedPrompt -match '\breboot\b' -or
-                 $normalizedPrompt -match '\buptime\b') -and
-                (Test-StubToolAvailable -ToolName 'Get-SystemSummary' -ToolSchemas $ToolSchemas)
+                 $normalizedPrompt -match '\buptime\b')
             ) {
-                $steps.Add((New-StubToolCall -ToolName 'Get-SystemSummary' -ToolInput @{
-                    View = 'Full'
-                })) | Out-Null
+                if (Test-StubToolAvailable -ToolName 'Get-SystemTriage' -ToolSchemas $ToolSchemas) {
+                    $steps.Add((New-StubToolCall -ToolName 'Get-SystemTriage' -ToolInput @{})) | Out-Null
+                } elseif (Test-StubToolAvailable -ToolName 'Get-SystemSummary' -ToolSchemas $ToolSchemas) {
+                    $steps.Add((New-StubToolCall -ToolName 'Get-SystemSummary' -ToolInput @{
+                        View = 'Full'
+                    })) | Out-Null
+                }
 
                 if (Test-StubToolAvailable -ToolName 'Get-StorageStatus' -ToolSchemas $ToolSchemas) {
                     $steps.Add((New-StubToolCall -ToolName 'Get-StorageStatus' -ToolInput @{
@@ -136,7 +143,7 @@ function Send-ClawRequest {
 
                 return [PSCustomObject]@{
                     Steps       = @($steps)
-                    PlanSummary = 'Check machine health first, add storage and network context, then summarize overall status and the most important issues.'
+                    PlanSummary = 'Start with deterministic system triage, add storage and network context only if needed, then summarize overall status and the most important issues.'
                 }
             }
 
@@ -298,6 +305,15 @@ function Send-ClawRequest {
             $preview = if ($previewLines.Count -gt 0) { $previewLines -join '; ' } else { 'No output was returned.' }
 
             switch ($toolName) {
+                'Get-SystemTriage' {
+                    return @"
+[Stub] Demo answer from ${toolName}:
+Overall status: the triage already summarizes the machine state into a bounded operator readout.
+Key findings: call out the highest-severity findings first, then the recommended next checks.
+Implication: use narrower tools only if the triage points to something ambiguous or worth confirming.
+Preview: $preview
+"@
+                }
                 'Get-SystemSummary' {
                     $cpuMatch = [regex]::Match($toolResult, 'CPULoadPct\s*[: ]+\s*([0-9.]+)')
                     $ramMatch = [regex]::Match($toolResult, 'RAMUsedPct\s*[: ]+\s*([0-9.]+)')

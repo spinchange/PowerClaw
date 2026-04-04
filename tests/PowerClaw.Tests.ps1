@@ -7,10 +7,15 @@ BeforeAll {
     . (Join-Path $script:RepoRoot 'registry\Register-ClawTools.ps1')
     . (Join-Path $script:RepoRoot 'registry\ConvertTo-ToolSchema.ps1')
     . (Join-Path $script:RepoRoot 'core\Invoke-ClawLoop.ps1')
+    . (Join-Path $script:RepoRoot 'core\Invoke-SystemTriage.ps1')
     . (Join-Path $script:RepoRoot 'client\Send-ClawRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-OpenAiRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-ClaudeRequest.ps1')
     . (Join-Path $script:RepoRoot 'tools\Fetch-WebPage.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Get-SystemSummary.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Get-ServiceStatus.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Get-EventLogEntries.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Get-StorageStatus.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-TopProcesses.ps1')
     . (Join-Path $script:RepoRoot 'tools\Remove-Files.ps1')
 }
@@ -36,6 +41,10 @@ Describe 'PowerClaw module' {
 
     It 'exports Test-PowerClawSetup' {
         (Get-Command Test-PowerClawSetup -ErrorAction Stop).Name | Should -Be 'Test-PowerClawSetup'
+    }
+
+    It 'exports Invoke-SystemTriage' {
+        (Get-Command Invoke-SystemTriage -ErrorAction Stop).Name | Should -Be 'Invoke-SystemTriage'
     }
 
     It 'ships a web runtime installer script that bootstraps Playwright' {
@@ -479,6 +488,19 @@ Describe 'Providers' {
         $result.ToolInput.Limit | Should -Be 10
     }
 
+    It 'stub mode prefers Get-SystemTriage for hard-drive health prompts when available' {
+        $result = Send-ClawRequest `
+            -Messages @(@{ role = 'user'; content = 'What about my hard drive?' }) `
+            -ToolSchemas @(
+                @{ name = 'Get-SystemTriage' },
+                @{ name = 'Get-StorageStatus' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Get-SystemTriage'
+    }
+
     It 'stub mode picks Fetch-WebPage for URL prompts when the tool is available' {
         $result = Send-ClawRequest `
             -Messages @(@{ role = 'user'; content = 'Summarize https://news.ycombinator.com' }) `
@@ -536,8 +558,8 @@ bar 234 21.5 128.0
                 content = @(@{
                     type  = 'tool_use'
                     id    = 'toolu_plan_1'
-                    name  = 'Get-SystemSummary'
-                    input = @{ View = 'Full' }
+                    name  = 'Get-SystemTriage'
+                    input = @{}
                 })
             }
             @{
@@ -545,7 +567,7 @@ bar 234 21.5 128.0
                 content = @(@{
                     type        = 'tool_result'
                     tool_use_id = 'toolu_plan_1'
-                    content     = 'Plan preview only: Get-SystemSummary was not executed.'
+                    content     = 'Plan preview only: Get-SystemTriage was not executed.'
                 })
             }
         )
@@ -553,6 +575,7 @@ bar 234 21.5 128.0
         $result = Send-ClawRequest `
             -Messages $messages `
             -ToolSchemas @(
+                @{ name = 'Get-SystemTriage' },
                 @{ name = 'Get-SystemSummary' },
                 @{ name = 'Get-StorageStatus' },
                 @{ name = 'Get-NetworkStatus' }
@@ -928,6 +951,307 @@ bar 234 21.5 128.0
     }
 }
 
+Describe 'System triage producer' {
+    It 'runs the allowed collectors in spec order and returns a triage document' {
+        $script:Calls = [System.Collections.Generic.List[string]]::new()
+
+        Mock Get-SystemSummary {
+            $script:Calls.Add('Get-SystemSummary') | Out-Null
+            [PSCustomObject]@{
+                MachineName = 'ws-01'
+                CPULoadPct = 18
+                RAMUsedPct = 63
+                Uptime = '2d 0h 0m'
+            }
+        }
+        Mock Get-TopProcesses {
+            param([string]$SortBy, [int]$Count)
+            $script:Calls.Add("Get-TopProcesses:$SortBy") | Out-Null
+            if ($SortBy -eq 'Memory') {
+                return @([PSCustomObject]@{ Name = 'Code'; CPU = 22.4; MemoryMB = 842.0 })
+            }
+            @([PSCustomObject]@{ Name = 'Code'; CPU = 22.4; MemoryMB = 842.0 })
+        }
+        Mock Get-ServiceStatus {
+            $script:Calls.Add('Get-ServiceStatus') | Out-Null
+            @([PSCustomObject]@{ Name = 'Spooler'; Status = 'Running'; StartType = 'Automatic' })
+        }
+        Mock Get-EventLogEntries {
+            $script:Calls.Add('Get-EventLogEntries') | Out-Null
+            @([PSCustomObject]@{ Source = 'Service Control Manager'; Level = 'Information' })
+        }
+        Mock Get-StorageStatus {
+            $script:Calls.Add('Get-StorageStatus') | Out-Null
+            @([PSCustomObject]@{ Drive = 'C'; FreeGB = 120.0; PercentFull = 58.0 })
+        }
+
+        $doc = Invoke-SystemTriage
+
+        @($script:Calls) | Should -Be @(
+            'Get-SystemSummary',
+            'Get-TopProcesses:CPU',
+            'Get-TopProcesses:Memory',
+            'Get-ServiceStatus',
+            'Get-EventLogEntries',
+            'Get-StorageStatus'
+        )
+        $doc.kind | Should -Be 'system_triage'
+        $doc.summary.status | Should -Be 'ok'
+        @($doc.sources | ForEach-Object id) | Should -Be @(
+            'src_system',
+            'src_processes',
+            'src_services',
+            'src_events',
+            'src_storage'
+        )
+    }
+
+    It 'continues after collector failures and omits failed sources' {
+        Mock Get-SystemSummary {
+            [PSCustomObject]@{
+                MachineName = 'ws-01'
+                CPULoadPct = 18
+                RAMUsedPct = 63
+                Uptime = '2d 0h 0m'
+            }
+        }
+        Mock Get-TopProcesses { throw 'process collector failed' }
+        Mock Get-ServiceStatus { throw 'service collector failed' }
+        Mock Get-EventLogEntries { @() }
+        Mock Get-StorageStatus { @([PSCustomObject]@{ Drive = 'C'; FreeGB = 120.0; PercentFull = 58.0 }) }
+
+        $doc = Invoke-SystemTriage
+
+        $doc.kind | Should -Be 'system_triage'
+        $doc.summary.status | Should -Be 'ok'
+        @($doc.sources | ForEach-Object id) | Should -Be @(
+            'src_system',
+            'src_events',
+            'src_storage'
+        )
+        $doc.findings.Count | Should -Be 0
+    }
+
+    It 'can emit JSON directly from the collector wrapper' {
+        Mock Get-SystemSummary {
+            [PSCustomObject]@{
+                MachineName = 'ws-01'
+                CPULoadPct = 18
+                RAMUsedPct = 63
+                Uptime = '2d 0h 0m'
+            }
+        }
+        Mock Get-TopProcesses { @([PSCustomObject]@{ Name = 'Code'; CPU = 22.4; MemoryMB = 842.0 }) }
+        Mock Get-ServiceStatus { @() }
+        Mock Get-EventLogEntries { @() }
+        Mock Get-StorageStatus { @([PSCustomObject]@{ Drive = 'C'; FreeGB = 120.0; PercentFull = 58.0 }) }
+
+        $json = Invoke-SystemTriage -AsJson
+        $parsed = $json | ConvertFrom-Json
+
+        $parsed.kind | Should -Be 'system_triage'
+        $parsed.window_minutes | Should -Be 60
+    }
+
+    It 'normalizes current collector outputs into the v1 producer input shape' {
+        $normalized = ConvertTo-SystemTriageNormalizedInput `
+            -SystemSummary ([PSCustomObject]@{
+                System = [PSCustomObject]@{
+                    MachineName = 'ws-01.contoso.local'
+                    CPULoadPct = 71.2
+                    RAMUsedPct = 84.1
+                    Uptime = '4d 6h 30m'
+                }
+            }) `
+            -TopCpuProcesses @([PSCustomObject]@{ Name = 'Code'; CPU = 22.4 }) `
+            -TopMemoryProcesses @([PSCustomObject]@{ Name = 'Code'; MemoryMB = 842.0 }) `
+            -ServiceStatus @([PSCustomObject]@{ Name = 'Spooler'; Status = 'Stopped'; StartType = 'Automatic' }) `
+            -EventLogEntries @(
+                [PSCustomObject]@{ Source = 'Service Control Manager'; Level = 'Error' },
+                [PSCustomObject]@{ Source = 'Service Control Manager'; Level = 'Warning' }
+            ) `
+            -StorageStatus ([PSCustomObject]@{
+                Drives = @([PSCustomObject]@{ Drive = 'C'; FreeGB = 48.2; PercentFull = 87.6 })
+            }) `
+            -CapturedAt ([datetimeoffset]'2026-04-04T18:05:00-05:00')
+
+        $normalized.host | Should -Be 'ws-01'
+        $normalized.system.cpu_pct | Should -Be 71.2
+        $normalized.system.memory_pct | Should -Be 84.1
+        $normalized.system.uptime_hours | Should -Be 102.5
+        $normalized.top_processes.cpu.name | Should -Be 'Code'
+        $normalized.top_processes.memory.mem_mb | Should -Be 842
+        $normalized.services[0].startup | Should -Be 'automatic'
+        $normalized.services[0].recent_failure_signal | Should -BeTrue
+        $normalized.event_sources[0].warning_error_count | Should -Be 2
+        $normalized.volumes[0].free_pct | Should -Be 12.4
+    }
+
+    It 'emits a healthy v1 document with no findings when inputs are normal' {
+        $doc = New-SystemTriageDocument -NormalizedInput ([PSCustomObject]@{
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            system = [PSCustomObject]@{ cpu_pct = 18; memory_pct = 63; uptime_hours = 48 }
+            top_processes = [PSCustomObject]@{
+                cpu = [PSCustomObject]@{ name = 'Code'; cpu_pct = 9.4 }
+                memory = [PSCustomObject]@{ name = 'Code'; mem_mb = 842 }
+            }
+            volumes = @([PSCustomObject]@{ name = 'C'; free_pct = 42.0; free_gb = 120.0; kind = 'fixed'; is_system = $true })
+            services = @([PSCustomObject]@{ name = 'Spooler'; state = 'running'; startup = 'automatic'; recent_failure_signal = $false; failure_count = 0 })
+            event_sources = @([PSCustomObject]@{ source = 'Service Control Manager'; warning_error_count = 1; error_count = 0 })
+        })
+
+        $doc.kind | Should -Be 'system_triage'
+        $doc.summary.status | Should -Be 'ok'
+        $doc.summary.score | Should -Be 0
+        $doc.findings.Count | Should -Be 0
+        $doc.actions.Count | Should -Be 0
+        $doc.sources.Count | Should -Be 5
+        $doc.summary.headline | Should -Match 'No abnormal system-health signals'
+    }
+
+    It 'reduces multiple disk candidates to the most severe volume and emits the matching action' {
+        $doc = New-SystemTriageDocument -NormalizedInput ([PSCustomObject]@{
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            system = [PSCustomObject]@{ cpu_pct = 12; memory_pct = 44; uptime_hours = 48 }
+            top_processes = [PSCustomObject]@{ cpu = $null; memory = $null }
+            volumes = @(
+                [PSCustomObject]@{ name = 'D'; free_pct = 6.5; free_gb = 5.0; kind = 'fixed'; is_system = $false },
+                [PSCustomObject]@{ name = 'C'; free_pct = 6.5; free_gb = 10.0; kind = 'fixed'; is_system = $true },
+                [PSCustomObject]@{ name = 'E'; free_pct = 12.0; free_gb = 100.0; kind = 'fixed'; is_system = $false }
+            )
+            services = @()
+            event_sources = @()
+        })
+
+        $doc.findings.Count | Should -Be 1
+        $doc.findings[0].id | Should -Be 'low_disk:d'
+        $doc.findings[0].severity | Should -Be 'critical'
+        $doc.actions[0].id | Should -Be 'inspect_volume_D'
+        $doc.summary.status | Should -Be 'critical'
+        $doc.summary.score | Should -Be 40
+    }
+
+    It 'flags a getting-tight drive as low_disk warning before the old threshold' {
+        $doc = New-SystemTriageDocument -NormalizedInput ([PSCustomObject]@{
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            system = [PSCustomObject]@{ cpu_pct = 12; memory_pct = 44; uptime_hours = 48 }
+            top_processes = [PSCustomObject]@{ cpu = $null; memory = $null }
+            volumes = @([PSCustomObject]@{ name = 'C'; free_pct = 16.3; free_gb = 38.8; kind = 'fixed'; is_system = $true })
+            services = @()
+            event_sources = @()
+        })
+
+        $doc.findings.Count | Should -Be 1
+        $doc.findings[0].id | Should -Be 'low_disk:c'
+        $doc.findings[0].severity | Should -Be 'warning'
+        $doc.summary.status | Should -Be 'warning'
+        $doc.summary.score | Should -Be 20
+    }
+
+    It 'rolls up multiple unstable allowlisted services into one critical escalation finding' {
+        $doc = New-SystemTriageDocument -NormalizedInput ([PSCustomObject]@{
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            system = [PSCustomObject]@{ cpu_pct = 22; memory_pct = 56; uptime_hours = 12 }
+            top_processes = [PSCustomObject]@{ cpu = $null; memory = $null }
+            volumes = @()
+            services = @(
+                [PSCustomObject]@{ name = 'Spooler'; state = 'stopped'; startup = 'automatic'; recent_failure_signal = $true; failure_count = 1 },
+                [PSCustomObject]@{ name = 'Dnscache'; state = 'running'; startup = 'automatic'; recent_failure_signal = $true; failure_count = 2 },
+                [PSCustomObject]@{ name = 'BITS'; state = 'stopped'; startup = 'automatic'; recent_failure_signal = $true; failure_count = 4 }
+            )
+            event_sources = @([PSCustomObject]@{ source = 'Service Control Manager'; warning_error_count = 4; error_count = 2 })
+        })
+
+        $doc.findings.Count | Should -Be 1
+        $doc.findings[0].id | Should -Be 'unstable_service:multiple'
+        $doc.findings[0].severity | Should -Be 'critical'
+        $doc.findings[0].evidence[1] | Should -Match 'Dnscache, Spooler'
+        $doc.actions[0].kind | Should -Be 'escalate'
+        $doc.actions[0].id | Should -Be 'escalate_service_instability'
+    }
+
+    It 'derives findings actions and headline deterministically for a mixed abnormal case' {
+        $doc = New-SystemTriageDocument -NormalizedInput ([PSCustomObject]@{
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            system = [PSCustomObject]@{ cpu_pct = 73; memory_pct = 87; uptime_hours = 800 }
+            top_processes = [PSCustomObject]@{
+                cpu = [PSCustomObject]@{ name = 'Code'; cpu_pct = 22.4 }
+                memory = [PSCustomObject]@{ name = 'Code'; mem_mb = 842 }
+            }
+            volumes = @([PSCustomObject]@{ name = 'C'; free_pct = 14.2; free_gb = 48.2; kind = 'fixed'; is_system = $true })
+            services = @([PSCustomObject]@{ name = 'Spooler'; state = 'running'; startup = 'automatic'; recent_failure_signal = $true; failure_count = 1 })
+            event_sources = @([PSCustomObject]@{ source = 'Service Control Manager'; warning_error_count = 6; error_count = 4 })
+        })
+
+        @($doc.findings | ForEach-Object id) | Should -Be @(
+            'low_disk:c',
+            'high_memory:global',
+            'high_cpu:global',
+            'abnormal_uptime_signal:global',
+            'unstable_service:spooler',
+            'repeated_system_errors:service_control_manager'
+        )
+        @($doc.actions | ForEach-Object id) | Should -Be @(
+            'inspect_volume_C',
+            'inspect_memory_top_processes',
+            'inspect_cpu_processes',
+            'monitor_uptime_context',
+            'confirm_spooler_stability'
+        )
+        $doc.summary.status | Should -Be 'warning'
+        $doc.summary.score | Should -Be 100
+        $doc.summary.headline | Should -Be 'Disk free space is low on C and Memory usage is elevated'
+        (Test-SystemTriageDocument -Document $doc).IsValid | Should -BeTrue
+    }
+
+    It 'rejects producer-invalid documents that break cross-field invariants' {
+        $invalid = [PSCustomObject]@{
+            schema_version = '1.0'
+            kind = 'system_triage'
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            window_minutes = 60
+            summary = [PSCustomObject]@{ status = 'ok'; score = 0; headline = 'bad' }
+            findings = @(
+                [PSCustomObject]@{
+                    id = 'high_memory:global'
+                    type = 'high_memory'
+                    severity = 'warning'
+                    category = 'memory'
+                    title = 'Memory usage is elevated'
+                    reason = 'Current memory usage is above the warning threshold'
+                    evidence = @('Memory in use: 87%')
+                    confidence = 0.95
+                    source_refs = @('src_missing')
+                }
+            )
+            actions = @(
+                [PSCustomObject]@{
+                    id = 'inspect_memory_top_processes'
+                    priority = 1
+                    kind = 'inspect'
+                    target = 'processes'
+                    reason = 'Review the top memory consumers to identify avoidable pressure'
+                    related_finding_ids = @('high_memory:other')
+                }
+            )
+            sources = @()
+        }
+
+        $validation = Test-SystemTriageDocument -Document $invalid
+        $validation.IsValid | Should -BeFalse
+        @($validation.Errors) -join ' ' | Should -Match 'source ref does not resolve'
+        @($validation.Errors) -join ' ' | Should -Match 'related finding id does not resolve'
+        @($validation.Errors) -join ' ' | Should -Match 'Summary status mismatch'
+        @($validation.Errors) -join ' ' | Should -Match 'Summary score mismatch'
+    }
+}
+
 Describe 'Loop behavior' {
     It 'feeds back unavailable-tool errors as proper tool_result turns and continues' {
         $script:CallCount = 0
@@ -999,6 +1323,13 @@ Describe 'Loop behavior' {
             -UserGoal 'Give me a full system health check' `
             -Tools @(
                 [PSCustomObject]@{
+                    Name = 'Get-SystemTriage'
+                    Description = 'Gets deterministic system triage'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                },
+                [PSCustomObject]@{
                     Name = 'Get-SystemSummary'
                     Description = 'Gets system summary'
                     Risk = 'ReadOnly'
@@ -1022,13 +1353,14 @@ Describe 'Loop behavior' {
             ) `
             -MaxSteps 1
 
-        $script:CapturedSystemPrompt | Should -Match 'combine a few complementary tools'
+        $script:CapturedSystemPrompt | Should -Match 'prefer the most synthesized read-only signal available'
         $script:CapturedSystemPrompt | Should -Match 'overall status first'
-        $script:CapturedSystemPrompt | Should -Match 'start with Get-SystemSummary and usually add at least one complementary tool'
-        $script:CapturedSystemPrompt | Should -Match 'Available follow-up signals here: Get-StorageStatus, Get-NetworkStatus'
+        $script:CapturedSystemPrompt | Should -Match 'start with Get-SystemTriage'
+        $script:CapturedSystemPrompt | Should -Match 'already combines bounded system, process, service, event, and storage signals'
+        $script:CapturedSystemPrompt | Should -Match 'Useful follow-up signals here: Get-StorageStatus, Get-NetworkStatus'
         $script:CapturedSystemPrompt | Should -Match 'usually finish in 1 to 3 tool calls'
         $script:CapturedSystemPrompt | Should -Match 'Prefer a fast first answer'
-        $script:CapturedSystemPrompt | Should -Match 'prefer system summary first, then storage or event issues if needed'
+        $script:CapturedSystemPrompt | Should -Match 'prefer triage first, then storage or event issues if needed'
         $script:CapturedSystemPrompt | Should -Match 'Overall status, Key findings, Why it matters, Next checks'
         $script:CapturedSystemPrompt | Should -Match 'Do not end a health check with a raw metric dump'
     }
@@ -1102,9 +1434,22 @@ Describe 'Loop behavior' {
         $script:CapturedSystemPrompt | Should -Match 'should not stop at raw listings'
         $script:CapturedSystemPrompt | Should -Match 'start with Search-Files or another broad discovery tool'
         $script:CapturedSystemPrompt | Should -Match 'Add context tools such as Get-DirectoryListing only when the first discovery result leaves real ambiguity'
+        $script:CapturedSystemPrompt | Should -Match 'Do not keep issuing broad file-discovery searches with different scopes or sorts'
         $script:CapturedSystemPrompt | Should -Match 'usually finish in 1 to 2 tool calls'
         $script:CapturedSystemPrompt | Should -Match 'Do not recommend deletion just because a file is large'
         $script:CapturedSystemPrompt | Should -Match 'worth reviewing'
+    }
+
+    It 'treats delete-identification phrasing as a cleanup goal' {
+        Test-ClawCleanupGoal -UserGoal 'Please identify files that I can delete' | Should -BeTrue
+        Test-ClawCleanupGoal -UserGoal 'What files can I delete from Downloads?' | Should -BeTrue
+        Test-ClawCleanupGoal -UserGoal 'Show me files to delete' | Should -BeTrue
+    }
+
+    It 'treats disk and storage phrasing as a health-check goal' {
+        Test-ClawHealthCheckGoal -UserGoal 'What about my hard drive?' | Should -BeTrue
+        Test-ClawHealthCheckGoal -UserGoal 'How is my disk space?' | Should -BeTrue
+        Test-ClawHealthCheckGoal -UserGoal 'Check my storage situation' | Should -BeTrue
     }
 
     It 'adds workflow-specific summary guidance for read and investigate prompts' {
@@ -1320,8 +1665,8 @@ old.log C:\temp\old.log 12.5 2026-04-04
                 1 {
                     return [PSCustomObject]@{
                         Type      = 'tool_call'
-                        ToolName  = 'Get-SystemSummary'
-                        ToolInput = @{ View = 'Full' }
+                        ToolName  = 'Get-SystemTriage'
+                        ToolInput = @{}
                         ToolUseId = 'toolu_plan_1'
                     }
                 }
@@ -1352,6 +1697,13 @@ old.log C:\temp\old.log 12.5 2026-04-04
             -UserGoal 'Give me a full system health check' `
             -Tools @(
                 [PSCustomObject]@{
+                    Name = 'Get-SystemTriage'
+                    Description = 'Gets deterministic system triage'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                },
+                [PSCustomObject]@{
                     Name = 'Get-SystemSummary'
                     Description = 'Gets system summary'
                     Risk = 'ReadOnly'
@@ -1372,7 +1724,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $result | Should -BeNullOrEmpty
         $script:CallCount | Should -Be 3
         ($script:PlanLines -join "`n") | Should -Match 'Intended tool chain'
-        ($script:PlanLines -join "`n") | Should -Match '1\. Get-SystemSummary'
+        ($script:PlanLines -join "`n") | Should -Match '1\. Get-SystemTriage'
         ($script:PlanLines -join "`n") | Should -Match '2\. Get-StorageStatus'
         ($script:PlanLines -join "`n") | Should -Match 'Summary: Summarize health status'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'Plan preview only'
@@ -1482,8 +1834,8 @@ old.log C:\temp\old.log 12.5 2026-04-04
                 1 {
                     return [PSCustomObject]@{
                         Type      = 'tool_call'
-                        ToolName  = 'Get-SystemSummary'
-                        ToolInput = @{ View = 'Full' }
+                        ToolName  = 'Get-SystemTriage'
+                        ToolInput = @{}
                         ToolUseId = 'toolu_health_1'
                     }
                 }
@@ -1526,6 +1878,16 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $result = Invoke-ClawLoop `
             -UserGoal 'Give me a full system health check' `
             -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-SystemTriage'
+                    Description = 'Get-SystemTriage'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Get-SystemTriage') | Out-Null
+                        'ok'
+                    }
+                }
                 [PSCustomObject]@{
                     Name = 'Get-SystemSummary'
                     Description = 'Get-SystemSummary'
@@ -1570,7 +1932,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
             -MaxSteps 5
 
         $result | Should -Be 'health summary from current signals'
-        @($script:ExecutedTools) | Should -Be @('Get-SystemSummary', 'Get-StorageStatus', 'Get-EventLogEntries')
+        @($script:ExecutedTools) | Should -Be @('Get-SystemTriage', 'Get-StorageStatus', 'Get-EventLogEntries')
         $script:CapturedMessages[4][8].content[0].type | Should -Be 'tool_result'
         $script:CapturedMessages[4][8].content[0].content | Should -Match 'Health-check latency budget reached'
         $script:CapturedMessages[4][8].content[0].content | Should -Match 'Answer now from the signals already gathered'
@@ -1663,6 +2025,85 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $script:CapturedMessages[3][6].content[0].type | Should -Be 'tool_result'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Cleanup latency budget reached'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Answer now from the files and context already gathered'
+    }
+
+    It 'blocks repeated broad cleanup discovery searches even when the tool arguments change' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+        $script:ExecutedTools = [System.Collections.Generic.List[string]]::new()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_cleanup_search_1'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-StorageStatus'
+                        ToolInput = @{ View = 'Summary' }
+                        ToolUseId = 'toolu_cleanup_storage_2'
+                    }
+                }
+                3 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Desktop'; Limit = 25; SortBy = 'DateModified'; Aggregate = $false }
+                        ToolUseId = 'toolu_cleanup_search_3'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'cleanup summary from surfaced files'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Please identify files that I can delete' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Search-Files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Search-Files') | Out-Null
+                        'ok'
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Get-StorageStatus'
+                    Description = 'Get-StorageStatus'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Get-StorageStatus') | Out-Null
+                        'ok'
+                    }
+                }
+            ) `
+            -MaxSteps 4
+
+        $result | Should -Be 'cleanup summary from surfaced files'
+        @($script:ExecutedTools) | Should -Be @('Search-Files', 'Get-StorageStatus')
+        $script:CapturedMessages[3][6].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'Cleanup discovery budget reached'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'Do not keep searching with new scopes or sorts'
     }
 
     It 'reports user decline as a proper tool_result turn and does not invoke the write tool' {

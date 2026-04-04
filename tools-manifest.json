@@ -2,6 +2,7 @@
   "approved_tools": [
     "Fetch-WebPage",
     "Get-TopProcesses",
+    "Get-SystemTriage",
     "Get-DirectoryListing",
     "Get-EventLogEntries",
     "Get-SystemSummary",

@@ -111,6 +111,10 @@ function Test-ClawHealthCheckGoal {
         $UserGoal -match '\bfull health check\b' -or
         $UserGoal -match '\bdiagnostic\b' -or
         $UserGoal -match "\bwhat'?s eating my cpu\b" -or
+        $UserGoal -match '\bhard drive\b' -or
+        $UserGoal -match '\bdisk\b' -or
+        $UserGoal -match '\bstorage\b' -or
+        $UserGoal -match '\bdrive space\b' -or
         $UserGoal -match '\bcpu\b' -or
         $UserGoal -match '\bmemory\b' -or
         $UserGoal -match '\bram\b'
@@ -132,9 +136,23 @@ function Test-ClawCleanupGoal {
         $UserGoal -match '\blargest files\b' -or
         $UserGoal -match '\bcleanup\b' -or
         $UserGoal -match '\bclean up\b' -or
+        $UserGoal -match '\bfiles?\s+(?:that|i|we)?\s*(?:can|could|should)?\s*delete\b' -or
+        $UserGoal -match '\bidentify\s+files?\s+that\s+i\s+can\s+delete\b' -or
+        $UserGoal -match '\bwhat\s+files?\s+can\s+i\s+delete\b' -or
+        $UserGoal -match '\bfiles?\s+to\s+delete\b' -or
+        $UserGoal -match '\bsafe\s+to\s+delete\b' -or
         $UserGoal -match '\bwhat should i clean\b' -or
-        $UserGoal -match '\bwhat looks safe to remove\b'
+        $UserGoal -match '\bwhat looks safe to remove\b' -or
+        $UserGoal -match '\bwhat can i delete\b'
     )
+}
+
+function Test-ClawBroadCleanupDiscoveryTool {
+    param(
+        [string]$ToolName
+    )
+
+    $ToolName -in @('Search-Files', 'Get-StorageStatus', 'Get-DirectoryListing')
 }
 
 function Test-ClawDeleteTargetsWerePreviouslyEnumerated {
@@ -242,6 +260,19 @@ function Get-ClawStubToolResult {
     )
 
     switch ($ToolName) {
+        'Get-SystemTriage' {
+            return @'
+schema_version : 1.0
+kind           : system_triage
+host           : DEMO-PC
+captured_at    : 2026-04-04T18:05:00-05:00
+window_minutes : 60
+summary        : @{status=warning; score=40; headline=Memory usage is elevated and Spooler appears unstable}
+findings       : {@{id=high_memory:global; severity=warning}, @{id=unstable_service:spooler; severity=warning}}
+actions        : {@{id=inspect_memory_top_processes; priority=1}, @{id=confirm_spooler_stability; priority=2}}
+sources        : {@{id=src_system; tool=Get-SystemSummary}, @{id=src_services; tool=Get-ServiceStatus}}
+'@
+        }
         'Get-SystemSummary' {
             return @'
 MachineName : DEMO-PC
@@ -341,24 +372,29 @@ function Get-ClawWorkflowPromptHints {
             'Get-EventLogEntries'
         ) | Where-Object { $_ -in $availableToolNames }
 
-        $hints.Add('WORKFLOW HINT: For health-check or diagnostic prompts, it is good to combine a few complementary tools before answering. Prefer a concise chain across system summary, storage, network, services, or recent event issues when those signals materially improve the answer.')
-        if ('Get-SystemSummary' -in $availableToolNames -and $healthFollowUps.Count -gt 0) {
+        $hints.Add('WORKFLOW HINT: For health-check or diagnostic prompts, prefer the most synthesized read-only signal available, then add narrower tools only if the triage leaves something ambiguous or worth confirming.')
+        if ('Get-SystemTriage' -in $availableToolNames) {
+            $hints.Add('WORKFLOW HINT: For a full health check, start with Get-SystemTriage. It already combines bounded system, process, service, event, and storage signals into one deterministic triage document.')
+            if ($healthFollowUps.Count -gt 0) {
+                $hints.Add("WORKFLOW HINT: After Get-SystemTriage, use follow-up tools only when the triage points to a specific area worth checking. Useful follow-up signals here: $($healthFollowUps -join ', ').")
+            }
+        } elseif ('Get-SystemSummary' -in $availableToolNames -and $healthFollowUps.Count -gt 0) {
             $hints.Add("WORKFLOW HINT: For a full health check, start with Get-SystemSummary and usually add at least one complementary tool before answering. Available follow-up signals here: $($healthFollowUps -join ', '). Do not stop after one tool if those extra signals would materially improve confidence.")
         }
         $hints.Add('WORKFLOW HINT: Speed matters. A normal health check should usually finish in 1 to 3 tool calls, not a long chain.')
         $hints.Add('WORKFLOW HINT: Prefer a fast first answer. Only add more tools when the earlier result suggests something abnormal, ambiguous, or worth confirming.')
-        $hints.Add('WORKFLOW HINT: For most health checks, prefer system summary first, then storage or event issues if needed. Only pull services or network details when the earlier signals suggest a real problem there.')
+        $hints.Add('WORKFLOW HINT: For most health checks, prefer triage first, then storage or event issues if needed. Only pull services or network details when the earlier signals suggest a real problem there.')
         $hints.Add('WORKFLOW HINT: For a health check final answer, synthesize into a short operator summary: overall status first, then the most important issues, then concrete next checks if needed.')
         $hints.Add('WORKFLOW HINT: Health-check answers should feel like an operator readout, not a tool dump. Lead with whether the machine looks healthy, degraded, or needs attention.')
         $hints.Add('WORKFLOW HINT: Health-check final answers should usually follow this structure: Overall status, Key findings, Why it matters, Next checks. If nothing looks urgent, say that explicitly instead of sounding alarmed.')
         $hints.Add('WORKFLOW HINT: Do not end a health check with a raw metric dump. Interpret the CPU, memory, storage, network, or service signals into a short operational judgment.')
     }
 
-    if (Test-ClawCleanupGoal -UserGoal $UserGoal) {
-        $cleanupContextTools = @(
-            'Get-DirectoryListing',
-            'Read-FileContent'
-        ) | Where-Object { $_ -in $availableToolNames }
+        if (Test-ClawCleanupGoal -UserGoal $UserGoal) {
+            $cleanupContextTools = @(
+                'Get-DirectoryListing',
+                'Read-FileContent'
+            ) | Where-Object { $_ -in $availableToolNames }
 
         $hints.Add('WORKFLOW HINT: For cleanup and biggest-file prompts, it is acceptable to chain discovery plus context. Find the likely cleanup targets first, then summarize what they are, how large they are, and what you would review before deletion.')
         if ('Search-Files' -in $availableToolNames) {
@@ -367,6 +403,7 @@ function Get-ClawWorkflowPromptHints {
         if ($cleanupContextTools.Count -gt 0) {
             $hints.Add("WORKFLOW HINT: Add context tools such as $($cleanupContextTools -join ', ') only when the first discovery result leaves real ambiguity about what the files are or whether they are worth reviewing.")
         }
+        $hints.Add('WORKFLOW HINT: Do not keep issuing broad file-discovery searches with different scopes or sorts. After one broad search, either answer from what you found or use one narrower context tool.')
         $hints.Add('WORKFLOW HINT: Speed matters here too. A normal cleanup answer should usually finish in 1 to 2 tool calls.')
         $hints.Add('WORKFLOW HINT: Cleanup answers should not stop at raw listings. Include a short recommendation section such as what looks safe to review, what is ambiguous, and whether the user should preview or confirm anything.')
         $hints.Add('WORKFLOW HINT: Cleanup final answers should usually follow this order: what I found, what looks worth reviewing, what is ambiguous or risky, then the next safe action.')
@@ -609,6 +646,33 @@ $workflowHints
                     Reason     = 'health_check_latency_budget_reached'
                     UserGoal   = $UserGoal
                     ToolCount  = $executedReadOnlyToolCount
+                }
+                $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
+                continue
+            }
+
+            if (
+                -not $Plan -and
+                $isCleanupGoal -and
+                $tool.Risk -eq 'ReadOnly' -and
+                (Test-ClawBroadCleanupDiscoveryTool -ToolName $toolName) -and
+                @($messages | Where-Object {
+                    $_.role -eq 'assistant' -and
+                    $_.content -is [array] -and
+                    $_.content[0].type -eq 'tool_use' -and
+                    (Test-ClawBroadCleanupDiscoveryTool -ToolName ([string]$_.content[0].name))
+                }).Count -ge 2
+            ) {
+                $toolResult = "Cleanup discovery budget reached: you already used 2 broad read-only discovery tools for this cleanup request. Do not keep searching with new scopes or sorts. Answer now from the files already surfaced, or use a narrower context tool only if the user explicitly asks for deeper inspection."
+                Write-Host "[Latency] Cleanup discovery budget reached; asking model to stop broad searching." -ForegroundColor Yellow
+                Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                    Event      = 'tool_skipped'
+                    Step       = $step
+                    Outcome    = 'blocked'
+                    Tool       = $toolName
+                    ToolUseId  = $response.ToolUseId
+                    Reason     = 'cleanup_discovery_budget_reached'
+                    UserGoal   = $UserGoal
                 }
                 $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
                 continue
