@@ -21,9 +21,9 @@ If you want a general-purpose cross-platform agent shell, this repo is intention
 ## Top 3 workflows
 
 1. **Machine triage**
-   Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings. PowerClaw should synthesize the important signals into one operator summary, not just echo one tool.
+   Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings. PowerClaw should synthesize the important signals into one operator summary, not just echo one tool, and should usually do so in a short 1 to 3 tool pass unless you explicitly want deeper investigation.
 2. **File and storage cleanup**
-   Find large files, inspect Downloads, locate old installers, and confirm before delete actions. Cleanup answers should include what was found and what to review next.
+   Find large files, inspect Downloads, locate old installers, and confirm before delete actions. Cleanup answers should include what was found and what to review next, and should usually finish in a fast 1 to 2 tool pass unless the first result is ambiguous.
 3. **Read and investigate**
    Summarize a webpage, inspect a local config or log, and connect what you read to system state.
 
@@ -202,7 +202,7 @@ Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -Sk
 | `Get-DirectoryListing` | Filesystem | List files in a directory |
 | `Search-Files` | Filesystem | Windows Search index queries |
 | `Read-FileContent` | Filesystem | Read and reason about any file |
-| `Remove-Files` | Filesystem | Delete specific full-path files, with protected-root blocks, a default batch ceiling, and single-file permanent delete |
+| `Remove-Files` | Filesystem | Delete specific full-path files, with protected-root blocks, a default batch ceiling, single-file permanent delete, and evidence-backed target requirements |
 | `Fetch-WebPage` | Web | Fetch readable webpage text from static or JavaScript-rendered pages |
 
 `Fetch-WebPage` is part of the default workbench surface, but it depends on the
@@ -253,6 +253,7 @@ Risk levels: `ReadOnly` (runs freely) · `Write` (requires an explicit confirmat
 - **Tool registry, not command generation.** Claude picks from approved tools only — it never writes raw PowerShell.
 - **Write tools require explicit confirmation.** Any tool with `CLAW_RISK = Write` pauses, shows arguments, and requires a typed confirmation token before executing.
 - **Loop-level write policy.** Write tools are blocked unless the user goal explicitly asks for a destructive change. Advisory requests such as “what looks safe to remove?” stay read-only.
+- **Evidence-backed delete policy.** `Remove-Files` only runs on exact full paths that were already shown earlier in the same request by a read-only tool. The model cannot jump straight from a vague delete request to an unverified path.
 - **Destructive path policy.** `Remove-Files` requires fully qualified file paths, blocks deletion from Windows, System, Program Files, and ProgramData locations, caps delete batches by default, and allows permanent delete for only one file per call.
 - **`-DryRun` mode.** Skips execution of write tools entirely.
 - **`-Plan` mode.** Shows a short intended tool chain preview before execution. Run without `-Plan` to execute the steps for real.
