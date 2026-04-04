@@ -101,6 +101,7 @@ Describe 'Tool behavior' {
     It 'deletes a literal-path file with wildcard characters in its name' {
         $tempFile = Join-Path $env:TEMP 'powerclaw pester [literal].txt'
         Set-Content -LiteralPath $tempFile -Value 'x'
+        $expectedPath = (Get-Item -LiteralPath $tempFile).FullName
 
         try {
             $result = Remove-Files -Paths @($tempFile)
@@ -108,7 +109,7 @@ Describe 'Tool behavior' {
             $result.FilesDeleted | Should -Be 1
             $result.Failed.Count | Should -Be 0
             $result.NotFound.Count | Should -Be 0
-            $result.Deleted[0].Path | Should -Be $tempFile
+            $result.Deleted[0].Path | Should -Be $expectedPath
         }
         finally {
             Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
