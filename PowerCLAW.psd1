@@ -6,6 +6,7 @@
     PowerShellVersion = '7.0'
     RootModule        = 'PowerClaw.psm1'
     FunctionsToExport = @('Invoke-PowerClaw')
+    AliasesToExport   = @('powerclaw')
     PrivateData       = @{
         PSData = @{
             Tags = @('AI', 'Automation', 'LLM', 'Claude', 'Agentic')

@@ -19,4 +19,6 @@ $moduleRoot = $PSScriptRoot
 # . "$moduleRoot\safety\Test-ClawSafety.ps1"   # Phase 3
 # . "$moduleRoot\safety\Write-ClawLog.ps1"      # Phase 3
 
-Export-ModuleMember -Function 'Invoke-PowerClaw'
+Set-Alias -Name powerclaw -Value Invoke-PowerClaw
+
+Export-ModuleMember -Function 'Invoke-PowerClaw' -Alias 'powerclaw'

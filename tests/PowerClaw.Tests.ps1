@@ -16,6 +16,13 @@ Describe 'PowerClaw module' {
     It 'imports the module and exports Invoke-PowerClaw' {
         (Get-Command Invoke-PowerClaw -ErrorAction Stop).Name | Should -Be 'Invoke-PowerClaw'
     }
+
+    It 'exports the powerclaw alias for interactive use' {
+        $alias = Get-Command powerclaw -ErrorAction Stop
+
+        $alias.CommandType | Should -Be 'Alias'
+        $alias.Definition | Should -Be 'Invoke-PowerClaw'
+    }
 }
 
 Describe 'Tool behavior' {

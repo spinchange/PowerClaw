@@ -37,9 +37,11 @@ choose an OpenAI-compatible model, and point `api_key_env` at your OpenAI key en
 Import-Module .\PowerClaw.psd1
 ```
 
+This exports both `Invoke-PowerClaw` and the ergonomic alias `powerclaw`.
+
 **4. Run a prompt**
 ```powershell
-Invoke-PowerClaw -Prompt "What are the top 5 processes by memory?"
+powerclaw "What are the top 5 processes by memory?"
 ```
 
 ## Optional: Persistent local install
@@ -80,17 +82,19 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium
 
 ```powershell
 # Basic prompt
-Invoke-PowerClaw -Prompt "Give me a full system health check"
+powerclaw "Give me a full system health check"
 
 # See what Claude would do without running it
-Invoke-PowerClaw -Plan -Prompt "Find the 10 biggest files in Downloads"
+powerclaw -Plan "Find the 10 biggest files in Downloads"
 
 # Test without an API key
-Invoke-PowerClaw -UseStub -Prompt "anything"
+powerclaw -UseStub "anything"
 
-# Verbose — see full request/response JSON
-Invoke-PowerClaw -Verbose -Prompt "What's eating my CPU?"
+# Verbose
+powerclaw -Verbose "What's eating my CPU?"
 ```
+
+For scripts or explicit PowerShell style, `Invoke-PowerClaw` remains available.
 
 ## Tests
 
@@ -173,4 +177,4 @@ Risk levels: `ReadOnly` (runs freely) · `Write` (requires confirmation prompt)
 
 ---
 
-*Spec: PowerClaw-SPEC-v03.md · Built with PowerShell 7 + Claude API*
+*Spec: PowerClaw-SPEC-v03.md · Built with PowerShell 7 + provider-configurable LLM backends*

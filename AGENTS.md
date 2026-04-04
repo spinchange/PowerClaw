@@ -38,7 +38,7 @@ pwsh -File .\Run-Tests.ps1
 Run a stubbed end-to-end invocation:
 
 ```powershell
-pwsh -NoProfile -Command "Import-Module .\PowerCLAW.psd1 -Force; Invoke-PowerClaw -UseStub -Prompt 'What are the top 5 processes by memory?'"
+pwsh -NoProfile -Command "Import-Module .\PowerCLAW.psd1 -Force; powerclaw -UseStub 'What are the top 5 processes by memory?'"
 ```
 
 ## Test policy
