@@ -806,9 +806,9 @@ $env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-content">
-        <h3>Import and run</h3>
+        <h3>Import and validate</h3>
         <pre>Import-Module .\PowerClaw.psd1
-powerclaw <span class="string">"What's eating my CPU?"</span></pre>
+Test-PowerClawSetup</pre>
       </div>
     </div>
 
@@ -824,6 +824,14 @@ powerclaw <span class="string">"What's eating my CPU?"</span></pre>
 
     <div class="step">
       <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Run a first prompt</h3>
+        <pre>powerclaw <span class="string">"What's eating my CPU?"</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">6</div>
       <div class="step-content">
         <h3>Optional: Playwright (for Fetch-WebPage)</h3>
         <pre><span class="comment"># One-time browser install</span>

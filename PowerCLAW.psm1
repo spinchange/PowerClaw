@@ -5,6 +5,7 @@ $moduleRoot = $PSScriptRoot
 # Core
 . "$moduleRoot\core\Invoke-PowerClaw.ps1"
 . "$moduleRoot\core\Invoke-ClawLoop.ps1"
+. "$moduleRoot\core\Test-PowerClawSetup.ps1"
 
 # Client — providers must load before the dispatcher
 . "$moduleRoot\client\providers\Send-ClaudeRequest.ps1"
@@ -21,4 +22,4 @@ $moduleRoot = $PSScriptRoot
 
 Set-Alias -Name powerclaw -Value Invoke-PowerClaw
 
-Export-ModuleMember -Function 'Invoke-PowerClaw' -Alias 'powerclaw'
+Export-ModuleMember -Function 'Invoke-PowerClaw', 'Test-PowerClawSetup' -Alias 'powerclaw'

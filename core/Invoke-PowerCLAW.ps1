@@ -19,6 +19,21 @@ function Invoke-PowerClaw {
 
     $config = Get-Content (Join-Path $PSScriptRoot '..\config.json') -Raw | ConvertFrom-Json
 
+    if (-not $UseStub) {
+        $setup = Test-PowerClawSetup
+        if (-not $setup.Ready) {
+            Write-Host "[Setup]" -ForegroundColor Yellow
+            foreach ($issue in $setup.Issues) {
+                Write-Host "  - $issue" -ForegroundColor Yellow
+            }
+            foreach ($recommendation in $setup.Recommendations) {
+                Write-Host "  > $recommendation" -ForegroundColor DarkGray
+            }
+            Write-Host "  > Or run: Test-PowerClawSetup" -ForegroundColor DarkGray
+            return
+        }
+    }
+
     $tools = Register-ClawTools
     if ($tools.Count -eq 0) {
         Write-Error "No approved tools found. Check tools-manifest.json."

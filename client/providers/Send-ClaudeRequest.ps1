@@ -22,7 +22,7 @@ function Send-ClaudeRequest {
     $apiKey = [System.Environment]::GetEnvironmentVariable($Config.api_key_env)
 
     if (-not $apiKey) {
-        throw "API key not found in env var '$($Config.api_key_env)'. Set it with: `$env:$($Config.api_key_env) = 'sk-ant-...'"
+        throw "API key not found in env var '$($Config.api_key_env)'. Set it with: `$env:$($Config.api_key_env) = 'sk-ant-...' and confirm config.json uses provider='claude'."
     }
 
     $body = @{

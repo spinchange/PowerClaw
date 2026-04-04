@@ -56,6 +56,7 @@ foreach ($item in $copyItems) {
     Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
 }
 
+$launcherDestination = $null
 if (-not $SkipLauncher) {
     New-Item -ItemType Directory -Path $BinRoot -Force | Out-Null
 
@@ -71,5 +72,15 @@ if (-not $SkipLauncher) {
 
 Write-Host "Installed $moduleName $moduleVersion to $destination"
 if (-not $SkipLauncher) {
-    Write-Host "Installed launcher to $(Join-Path $BinRoot 'powerclaw.ps1')"
+    Write-Host "Installed launcher to $launcherDestination"
 }
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Cyan
+Write-Host "  1. Ensure '$ModuleRoot' is on PSModulePath." -ForegroundColor Gray
+if (-not $SkipLauncher) {
+    Write-Host "  2. Ensure '$BinRoot' is on PATH." -ForegroundColor Gray
+    Write-Host "  3. Open a new PowerShell session and run: powerclaw -UseStub ""hello""" -ForegroundColor Gray
+} else {
+    Write-Host "  2. Import the module and run: powerclaw -UseStub ""hello""" -ForegroundColor Gray
+}
+Write-Host "  4. Run Test-PowerClawSetup after setting your API key." -ForegroundColor Gray

@@ -32,6 +32,13 @@ To persist across sessions, add it to your PowerShell profile.
 If you want to use OpenAI instead, set `config.json` to `"provider": "openai"`,
 choose an OpenAI-compatible model, and point `api_key_env` at your OpenAI key env var.
 
+### Provider quickstart
+
+| Provider | `provider` | API key env var | Example model |
+|----------|------------|-----------------|---------------|
+| Anthropic | `claude` | `CLAUDE_API_KEY` | `claude-sonnet-4-20250514` |
+| OpenAI | `openai` | `OPENAI_API_KEY` | `gpt-4.1-mini` |
+
 **3. Import the module**
 ```powershell
 Import-Module .\PowerClaw.psd1
@@ -42,6 +49,11 @@ This exports both `Invoke-PowerClaw` and the ergonomic alias `powerclaw`.
 **4. Run a prompt**
 ```powershell
 powerclaw "What are the top 5 processes by memory?"
+```
+
+**5. Validate setup**
+```powershell
+Test-PowerClawSetup
 ```
 
 ## Optional: Persistent local install
@@ -63,6 +75,9 @@ After that, `powerclaw` works as a real shell command in a new PowerShell sessio
 ```powershell
 powerclaw "What's eating my CPU?"
 ```
+
+If you want a starting config to edit, copy `config.example.json` to `config.json`
+and then set the provider, model, and API key env var for your setup.
 
 ---
 
@@ -96,6 +111,9 @@ powerclaw -UseStub "anything"
 
 # Verbose
 powerclaw -Verbose "What's eating my CPU?"
+
+# Validate setup
+Test-PowerClawSetup
 ```
 
 For scripts or explicit PowerShell style, `Invoke-PowerClaw` remains available.

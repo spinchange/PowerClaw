@@ -29,7 +29,7 @@ function Send-OpenAiRequest {
     $apiKey = [System.Environment]::GetEnvironmentVariable($Config.api_key_env)
 
     if (-not $apiKey) {
-        throw "API key not found in env var '$($Config.api_key_env)'. Set it with: `$env:$($Config.api_key_env) = 'sk-...'"
+        throw "API key not found in env var '$($Config.api_key_env)'. Set it with: `$env:$($Config.api_key_env) = 'sk-...' and confirm config.json uses provider='openai'."
     }
 
     # Convert Claude tool schemas → OpenAI function-calling format

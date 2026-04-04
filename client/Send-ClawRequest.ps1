@@ -44,6 +44,6 @@ function Send-ClawRequest {
     switch ($config.provider) {
         "claude" { return Send-ClaudeRequest -SystemPrompt $SystemPrompt -Messages $Messages -ToolSchemas $ToolSchemas -Config $config }
         "openai" { return Send-OpenAiRequest -SystemPrompt $SystemPrompt -Messages $Messages -ToolSchemas $ToolSchemas -Config $config }
-        default  { throw "Unknown provider '$($config.provider)'. Check config.json." }
+        default  { throw "Unknown provider '$($config.provider)'. Supported values in config.json are 'claude' or 'openai'." }
     }
 }

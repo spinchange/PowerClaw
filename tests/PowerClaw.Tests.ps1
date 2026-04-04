@@ -30,6 +30,61 @@ Describe 'PowerClaw module' {
 
         $output | Should -Match '\[Stub\]'
     }
+
+    It 'exports Test-PowerClawSetup' {
+        (Get-Command Test-PowerClawSetup -ErrorAction Stop).Name | Should -Be 'Test-PowerClawSetup'
+    }
+}
+
+Describe 'Setup validation' {
+    It 'reports ready when config and key are valid' {
+        $configPath = Join-Path $env:TEMP 'powerclaw-setup-valid.json'
+        $env:POWERCLAW_TEST_SETUP_KEY = 'test-key'
+        Set-Content -LiteralPath $configPath -Value @'
+{
+  "provider": "openai",
+  "model": "gpt-test",
+  "api_key_env": "POWERCLAW_TEST_SETUP_KEY",
+  "max_tokens": 256,
+  "max_steps": 2,
+  "max_output_chars": 1000,
+  "log_file": "powerclaw.log"
+}
+'@
+        try {
+            $result = Test-PowerClawSetup -ConfigPath $configPath
+            $result.Ready | Should -BeTrue
+            $result.Provider | Should -Be 'openai'
+        }
+        finally {
+            Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:\POWERCLAW_TEST_SETUP_KEY -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'reports missing key and bad provider clearly' {
+        $configPath = Join-Path $env:TEMP 'powerclaw-setup-invalid.json'
+        Set-Content -LiteralPath $configPath -Value @'
+{
+  "provider": "gemini",
+  "model": "test-model",
+  "api_key_env": "POWERCLAW_MISSING_KEY",
+  "max_tokens": 256,
+  "max_steps": 2,
+  "max_output_chars": 1000,
+  "log_file": "powerclaw.log"
+}
+'@
+        try {
+            $result = Test-PowerClawSetup -ConfigPath $configPath
+            $result.Ready | Should -BeFalse
+            @($result.Issues) -join ' ' | Should -Match 'Unsupported provider'
+            @($result.Issues) -join ' ' | Should -Match 'POWERCLAW_MISSING_KEY'
+        }
+        finally {
+            Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Describe 'Tool behavior' {

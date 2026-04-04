@@ -5,7 +5,7 @@
     Description       = 'PowerShell Command-Line Agentic Workbench — LLM-guided tool orchestration'
     PowerShellVersion = '7.0'
     RootModule        = 'PowerClaw.psm1'
-    FunctionsToExport = @('Invoke-PowerClaw')
+    FunctionsToExport = @('Invoke-PowerClaw', 'Test-PowerClawSetup')
     AliasesToExport   = @('powerclaw')
     PrivateData       = @{
         PSData = @{

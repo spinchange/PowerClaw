@@ -28,6 +28,8 @@ defined in `tools/` and allowed by `tools-manifest.json`.
   Pester suite and legacy script-style regression tests.
 - `Run-Tests.ps1`
   Supported repo test entrypoint.
+- `config.example.json`
+  Starter config for provider/model setup.
 
 ## Primary commands
 
@@ -47,6 +49,12 @@ Run the launcher directly from the repo root:
 
 ```powershell
 pwsh -NoProfile -File .\powerclaw.ps1 -UseStub "anything"
+```
+
+Validate local setup:
+
+```powershell
+pwsh -NoProfile -Command "Import-Module .\PowerCLAW.psd1 -Force; Test-PowerClawSetup"
 ```
 
 ## Test policy
