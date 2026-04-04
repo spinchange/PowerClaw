@@ -31,7 +31,7 @@ New-Item -ItemType Directory -Path $targetTools -Force | Out-Null
 Set-Content -LiteralPath $targetManifest -Value @'
 {
   "approved_tools": ["Get-TopProcesses"],
-  "disabled_tools": ["Fetch-WebPage", "Search-MyJoNotes"]
+  "disabled_tools": ["Search-MyJoNotes"]
 }
 '@
 

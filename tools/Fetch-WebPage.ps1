@@ -9,6 +9,65 @@
 .CLAW_CATEGORY
     Web
 #>
+function Get-ClawPlaywrightDebugRoot {
+    $pwDebugRoot = [System.Environment]::GetEnvironmentVariable('POWERCLAW_PLAYWRIGHT_BUILD')
+    if ([string]::IsNullOrWhiteSpace($pwDebugRoot)) {
+        $pwDebugRoot = Join-Path $env:USERPROFILE ".powerclaw-playwright\PwHost\PwHost\bin\Debug"
+    }
+
+    return $pwDebugRoot
+}
+
+function Get-ClawBrowserLaunchCandidates {
+    $candidates = @(
+        @{ Label = 'Chrome channel'; Channel = 'chrome'; ExecutablePath = $null },
+        @{ Label = 'Edge channel'; Channel = 'msedge'; ExecutablePath = $null }
+    )
+
+    $knownExecutables = @(
+        "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles}\Microsoft\Edge\Application\msedge.exe",
+        "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
+    ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+
+    foreach ($executable in $knownExecutables | Select-Object -Unique) {
+        $candidates += @{ Label = "Installed browser ($([System.IO.Path]::GetFileName($executable)))"; Channel = $null; ExecutablePath = $executable }
+    }
+
+    $candidates += @{ Label = 'Bundled Chromium'; Channel = $null; ExecutablePath = $null }
+    return $candidates
+}
+
+function Resolve-ClawWebFetchFailureMessage {
+    param(
+        [string]$Url,
+        [string]$FailureText,
+        [string[]]$LaunchAttempts
+    )
+
+    $attemptText = if ($LaunchAttempts -and $LaunchAttempts.Count -gt 0) {
+        " Launch attempts: $($LaunchAttempts -join ', ')."
+    } else {
+        ''
+    }
+
+    if ($FailureText -match 'spawn EPERM|Access is denied|access denied|not permitted') {
+        return "Fetch-WebPage could not launch a browser for '$Url'. The Playwright runtime is installed, but this session appears to block headless browser launch.$attemptText Try running PowerClaw from a normal local PowerShell session outside constrained or sandboxed hosts."
+    }
+
+    if ($FailureText -match 'Executable doesn''t exist|executable doesn''t exist|Failed to launch.*browser') {
+        return "Fetch-WebPage could not find a usable browser runtime for '$Url'.$attemptText Re-run `Install-PowerClawWebRuntime.ps1` to refresh the Playwright browser install."
+    }
+
+    if ($FailureText -match 'Timeout|timed out') {
+        return "Fetch-WebPage timed out while loading '$Url'. Try a larger TimeoutMs value or retry the request if the site is slow."
+    }
+
+    $summaryLine = ($FailureText -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)
+    return "Fetch-WebPage failed for '$Url'.$attemptText $summaryLine"
+}
+
 function Fetch-WebPage {
     [CmdletBinding()]
     param(
@@ -26,7 +85,8 @@ function Fetch-WebPage {
     )
 
     # ── Load Playwright DLLs ──
-    $pwBuild = Get-ChildItem (Join-Path $env:USERPROFILE ".powerclaw-playwright\PwHost\PwHost\bin\Debug") -Directory |
+    $pwDebugRoot = Get-ClawPlaywrightDebugRoot
+    $pwBuild = Get-ChildItem $pwDebugRoot -Directory |
         Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
     if (-not (Test-Path $pwBuild)) {
         throw "Playwright not set up. Run the one-time setup in the PowerClaw README."
@@ -46,27 +106,35 @@ function Fetch-WebPage {
 
     $playwright = $null
     $browser    = $null
+    $context    = $null
+    $launchAttempts = [System.Collections.Generic.List[string]]::new()
 
     try {
         $playwright = Await ([Microsoft.Playwright.Playwright]::CreateAsync())
 
-        # Use installed Chrome if available — real Chrome is far less likely to be flagged
-        # Falls back to bundled Chromium if Chrome isn't installed
-        $launchOptions = [Microsoft.Playwright.BrowserTypeLaunchOptions]@{
-            Headless = $true
-            Channel  = "chrome"
-            Args     = [string[]]@(
-                "--disable-blink-features=AutomationControlled"
-                "--no-sandbox"
-            )
+        foreach ($candidate in Get-ClawBrowserLaunchCandidates) {
+            $launchAttempts.Add($candidate.Label)
+            $launchOptions = [Microsoft.Playwright.BrowserTypeLaunchOptions]@{
+                Headless       = $true
+                Channel        = $candidate.Channel
+                ExecutablePath = $candidate.ExecutablePath
+                Args           = [string[]]@(
+                    "--disable-blink-features=AutomationControlled"
+                    "--no-sandbox"
+                )
+            }
+
+            try {
+                $browser = Await ($playwright.Chromium.LaunchAsync($launchOptions))
+                break
+            }
+            catch {
+                $lastLaunchError = $_
+            }
         }
-        try {
-            $browser = Await ($playwright.Chromium.LaunchAsync($launchOptions))
-        }
-        catch {
-            # Chrome not installed — fall back to bundled Chromium
-            $launchOptions.Channel = $null
-            $browser = Await ($playwright.Chromium.LaunchAsync($launchOptions))
+
+        if (-not $browser) {
+            throw $lastLaunchError
         }
 
         # Realistic browser context — viewport, locale, user agent
@@ -113,7 +181,8 @@ function Fetch-WebPage {
         }
     }
     catch {
-        throw "Fetch-WebPage failed for '$Url': $_"
+        $failureText = "$_"
+        throw (Resolve-ClawWebFetchFailureMessage -Url $Url -FailureText $failureText -LaunchAttempts @($launchAttempts))
     }
     finally {
         if ($context)    { try { Await ($context.CloseAsync())  } catch {} }

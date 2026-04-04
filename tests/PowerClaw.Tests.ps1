@@ -10,6 +10,7 @@ BeforeAll {
     . (Join-Path $script:RepoRoot 'client\Send-ClawRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-OpenAiRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-ClaudeRequest.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Fetch-WebPage.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-TopProcesses.ps1')
     . (Join-Path $script:RepoRoot 'tools\Remove-Files.ps1')
 }
@@ -36,12 +37,68 @@ Describe 'PowerClaw module' {
     It 'exports Test-PowerClawSetup' {
         (Get-Command Test-PowerClawSetup -ErrorAction Stop).Name | Should -Be 'Test-PowerClawSetup'
     }
+
+    It 'ships a web runtime installer script that bootstraps Playwright' {
+        $installerPath = Join-Path $script:RepoRoot 'Install-PowerClawWebRuntime.ps1'
+        $runtimeRoot = Join-Path $env:TEMP 'powerclaw-web-runtime-install'
+        $commandLog = [System.Collections.Generic.List[string]]::new()
+
+        Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+        try {
+            function global:dotnet {
+                param(
+                    [Parameter(ValueFromRemainingArguments = $true)]
+                    [object[]]$Args
+                )
+
+                $commandLog.Add("dotnet $($Args -join ' ')")
+
+                if ($Args.Count -ge 2 -and $Args[0] -eq 'new' -and $Args[1] -eq 'console') {
+                    $projectIndex = [Array]::IndexOf($Args, '-n')
+                    $frameworkIndex = [Array]::IndexOf($Args, '--framework')
+                    $projectName = [string]$Args[$projectIndex + 1]
+                    $framework = [string]$Args[$frameworkIndex + 1]
+                    $projectRoot = Join-Path (Get-Location) $projectName
+                    $playwrightScript = Join-Path $projectRoot "bin\Debug\$framework\playwright.ps1"
+
+                    New-Item -ItemType Directory -Path (Split-Path -Parent $playwrightScript) -Force | Out-Null
+                    Set-Content -LiteralPath $playwrightScript -Value '# mock playwright installer'
+                }
+            }
+
+            function global:pwsh {
+                param(
+                    [Parameter(ValueFromRemainingArguments = $true)]
+                    [object[]]$Args
+                )
+
+                $commandLog.Add("pwsh $($Args -join ' ')")
+            }
+
+            & $installerPath -RuntimeRoot $runtimeRoot
+
+            Test-Path -LiteralPath (Join-Path $runtimeRoot 'PwHost\bin\Debug\net10.0\playwright.ps1') | Should -BeTrue
+            $joinedCommands = @($commandLog) -join "`n"
+            $joinedCommands | Should -Match 'dotnet new console'
+            $joinedCommands | Should -Match 'dotnet add package Microsoft\.Playwright'
+            $joinedCommands | Should -Match 'dotnet build'
+            $joinedCommands | Should -Match 'pwsh -File .* install chromium'
+        }
+        finally {
+            Remove-Item Function:\global:dotnet -ErrorAction SilentlyContinue
+            Remove-Item Function:\global:pwsh -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Describe 'Setup validation' {
     It 'reports ready when config and key are valid' {
         $configPath = Join-Path $env:TEMP 'powerclaw-setup-valid.json'
+        $webRuntimeRoot = Join-Path $env:TEMP 'powerclaw-playwright-test\bin\Debug'
         $env:POWERCLAW_TEST_SETUP_KEY = 'test-key'
+        $env:POWERCLAW_PLAYWRIGHT_BUILD = $webRuntimeRoot
         Set-Content -LiteralPath $configPath -Value @'
 {
   "provider": "openai",
@@ -54,12 +111,17 @@ Describe 'Setup validation' {
 }
 '@
         try {
+            New-Item -ItemType Directory -Path (Join-Path $webRuntimeRoot 'net10.0') -Force | Out-Null
+
             $result = Test-PowerClawSetup -ConfigPath $configPath
             $result.Ready | Should -BeTrue
             $result.Provider | Should -Be 'openai'
+            $result.WebFetchReady | Should -BeTrue
         }
         finally {
+            Remove-Item -LiteralPath (Join-Path $env:TEMP 'powerclaw-playwright-test') -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:\POWERCLAW_PLAYWRIGHT_BUILD -ErrorAction SilentlyContinue
             Remove-Item Env:\POWERCLAW_TEST_SETUP_KEY -ErrorAction SilentlyContinue
         }
     }
@@ -86,6 +148,36 @@ Describe 'Setup validation' {
         }
         finally {
             Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'reports missing web runtime with the supported install command' {
+        $configPath = Join-Path $env:TEMP 'powerclaw-setup-web-missing.json'
+        $env:POWERCLAW_TEST_SETUP_KEY = 'test-key'
+        $env:POWERCLAW_PLAYWRIGHT_BUILD = Join-Path $env:TEMP 'powerclaw-playwright-missing\bin\Debug'
+        Set-Content -LiteralPath $configPath -Value @'
+{
+  "provider": "openai",
+  "model": "gpt-test",
+  "api_key_env": "POWERCLAW_TEST_SETUP_KEY",
+  "max_tokens": 256,
+  "max_steps": 2,
+  "max_output_chars": 1000,
+  "log_file": "powerclaw.log"
+}
+'@
+        try {
+            Remove-Item -LiteralPath (Join-Path $env:TEMP 'powerclaw-playwright-missing') -Recurse -Force -ErrorAction SilentlyContinue
+
+            $result = Test-PowerClawSetup -ConfigPath $configPath
+            $result.Ready | Should -BeFalse
+            @($result.Issues) -join ' ' | Should -Match 'Fetch-WebPage runtime is not installed'
+            @($result.Recommendations) -join ' ' | Should -Match 'Install-PowerClawWebRuntime\.ps1'
+        }
+        finally {
+            Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:\POWERCLAW_PLAYWRIGHT_BUILD -ErrorAction SilentlyContinue
+            Remove-Item Env:\POWERCLAW_TEST_SETUP_KEY -ErrorAction SilentlyContinue
         }
     }
 }
@@ -159,6 +251,34 @@ Describe 'Tool behavior' {
         $result.Blocked.Count | Should -Be 1
         $result.Blocked[0].Reason | Should -Match 'Permanent delete is limited to one file per call'
     }
+
+    It 'classifies browser launch permission failures for Fetch-WebPage clearly' {
+        $message = Resolve-ClawWebFetchFailureMessage `
+            -Url 'https://news.ycombinator.com' `
+            -FailureText 'spawn EPERM' `
+            -LaunchAttempts @('Chrome channel', 'Edge channel', 'Bundled Chromium')
+
+        $message | Should -Match 'could not launch a browser'
+        $message | Should -Match 'normal local PowerShell session'
+        $message | Should -Match 'Chrome channel, Edge channel, Bundled Chromium'
+    }
+
+    It 'classifies missing browser runtime failures for Fetch-WebPage clearly' {
+        $message = Resolve-ClawWebFetchFailureMessage `
+            -Url 'https://example.com' `
+            -FailureText "Executable doesn't exist" `
+            -LaunchAttempts @('Bundled Chromium')
+
+        $message | Should -Match 'could not find a usable browser runtime'
+        $message | Should -Match 'Install-PowerClawWebRuntime\.ps1'
+    }
+
+    It 'lists bundled chromium as the final browser launch fallback' {
+        $candidates = @(Get-ClawBrowserLaunchCandidates)
+
+        $candidates.Count | Should -BeGreaterThan 0
+        $candidates[-1].Label | Should -Be 'Bundled Chromium'
+    }
 }
 
 Describe 'Registry and schema' {
@@ -212,12 +332,12 @@ function Get-Beta {
         $schema.input_schema.additionalProperties | Should -BeFalse
     }
 
-    It 'keeps Fetch-WebPage outside the default approved tool set' {
+    It 'keeps Fetch-WebPage in the default approved tool set' {
         $manifestPath = Join-Path $script:RepoRoot 'tools-manifest.json'
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 
-        'Fetch-WebPage' -in @($manifest.approved_tools) | Should -BeFalse
-        'Fetch-WebPage' -in @($manifest.disabled_tools) | Should -BeTrue
+        'Fetch-WebPage' -in @($manifest.approved_tools) | Should -BeTrue
+        'Fetch-WebPage' -in @($manifest.disabled_tools) | Should -BeFalse
     }
 
     It 'keeps personal tools outside the main portable tool directory' {
@@ -303,7 +423,7 @@ Describe 'Overlay install helper' {
         Set-Content -LiteralPath $targetManifest -Value @'
 {
   "approved_tools": ["Get-TopProcesses"],
-  "disabled_tools": ["Fetch-WebPage", "Search-MyJoNotes"]
+  "disabled_tools": ["Search-MyJoNotes"]
 }
 '@
 
@@ -321,9 +441,179 @@ Describe 'Overlay install helper' {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
+
+    It 'copies the web runtime installer into the installed module tree' {
+        $tempRoot = Join-Path $env:TEMP 'powerclaw-pester-install'
+        $moduleRoot = Join-Path $tempRoot 'modules'
+        $binRoot = Join-Path $tempRoot 'bin'
+        $scriptPath = Join-Path $script:RepoRoot 'Install-PowerClaw.ps1'
+        $manifest = Import-PowerShellDataFile -Path (Join-Path $script:RepoRoot 'PowerClaw.psd1')
+        $installRoot = Join-Path (Join-Path $moduleRoot 'PowerClaw') ([string]$manifest.ModuleVersion)
+
+        Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+
+        try {
+            & $scriptPath -ModuleRoot $moduleRoot -BinRoot $binRoot
+
+            Test-Path -LiteralPath (Join-Path $installRoot 'Install-PowerClawWebRuntime.ps1') | Should -BeTrue
+        }
+        finally {
+            Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 Describe 'Providers' {
+    It 'stub mode picks Search-Files for biggest-files cleanup prompts' {
+        $result = Send-ClawRequest `
+            -Messages @(@{ role = 'user'; content = 'Find the 10 biggest files in Downloads' }) `
+            -ToolSchemas @(
+                @{ name = 'Search-Files' },
+                @{ name = 'Get-TopProcesses' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Search-Files'
+        $result.ToolInput.Scope | Should -Match 'Downloads'
+        $result.ToolInput.Limit | Should -Be 10
+    }
+
+    It 'stub mode picks Fetch-WebPage for URL prompts when the tool is available' {
+        $result = Send-ClawRequest `
+            -Messages @(@{ role = 'user'; content = 'Summarize https://news.ycombinator.com' }) `
+            -ToolSchemas @(
+                @{ name = 'Fetch-WebPage' },
+                @{ name = 'Read-FileContent' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Fetch-WebPage'
+        $result.ToolInput.Url | Should -Be 'https://news.ycombinator.com'
+    }
+
+    It 'stub mode turns tool output into a workflow-shaped final answer' {
+        $result = Send-ClawRequest `
+            -Messages @(
+                @{ role = 'user'; content = 'What is eating my CPU?' }
+                @{
+                    role = 'assistant'
+                    content = @(@{
+                        type  = 'tool_use'
+                        id    = 'toolu_stub'
+                        name  = 'Get-TopProcesses'
+                        input = @{ SortBy = 'CPU'; Count = 5 }
+                    })
+                }
+                @{
+                    role = 'user'
+                    content = @(@{
+                        type        = 'tool_result'
+                        tool_use_id = 'toolu_stub'
+                        content     = @'
+Name Id CPU MemoryMB
+foo 123 99.4 512.0
+bar 234 21.5 128.0
+'@
+                    })
+                }
+            ) `
+            -ToolSchemas @(@{ name = 'Get-TopProcesses' }) `
+            -UseStub
+
+        $result.Type | Should -Be 'final_answer'
+        $result.Content | Should -Match 'Overall status: resource usage is concentrated'
+        $result.Content | Should -Match 'Key finding: the main CPU consumer is highlighted first'
+        $result.Content | Should -Match 'foo 123 99.4 512.0'
+    }
+
+    It 'stub mode previews a multi-step health-check plan chain' {
+        $messages = @(
+            @{ role = 'user'; content = 'Give me a full system health check' }
+            @{
+                role = 'assistant'
+                content = @(@{
+                    type  = 'tool_use'
+                    id    = 'toolu_plan_1'
+                    name  = 'Get-SystemSummary'
+                    input = @{ View = 'Full' }
+                })
+            }
+            @{
+                role = 'user'
+                content = @(@{
+                    type        = 'tool_result'
+                    tool_use_id = 'toolu_plan_1'
+                    content     = 'Plan preview only: Get-SystemSummary was not executed.'
+                })
+            }
+        )
+
+        $result = Send-ClawRequest `
+            -Messages $messages `
+            -ToolSchemas @(
+                @{ name = 'Get-SystemSummary' },
+                @{ name = 'Get-StorageStatus' },
+                @{ name = 'Get-NetworkStatus' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Get-StorageStatus'
+    }
+
+    It 'stub mode returns a cleanup plan summary after previewing the chain' {
+        $messages = @(
+            @{ role = 'user'; content = 'Find the 10 biggest files in Downloads and tell me what I should clean up' }
+            @{
+                role = 'assistant'
+                content = @(@{
+                    type  = 'tool_use'
+                    id    = 'toolu_plan_1'
+                    name  = 'Search-Files'
+                    input = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                })
+            }
+            @{
+                role = 'user'
+                content = @(@{
+                    type        = 'tool_result'
+                    tool_use_id = 'toolu_plan_1'
+                    content     = 'Plan preview only: Search-Files was not executed.'
+                })
+            }
+            @{
+                role = 'assistant'
+                content = @(@{
+                    type  = 'tool_use'
+                    id    = 'toolu_plan_2'
+                    name  = 'Get-DirectoryListing'
+                    input = @{ Path = 'C:\Users\chris\Downloads'; Limit = 25 }
+                })
+            }
+            @{
+                role = 'user'
+                content = @(@{
+                    type        = 'tool_result'
+                    tool_use_id = 'toolu_plan_2'
+                    content     = 'Plan preview only: Get-DirectoryListing was not executed.'
+                })
+            }
+        )
+
+        $result = Send-ClawRequest `
+            -Messages $messages `
+            -ToolSchemas @(
+                @{ name = 'Search-Files' },
+                @{ name = 'Get-DirectoryListing' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'final_answer'
+        $result.Content | Should -Match 'Find the biggest candidate files first'
+    }
+
     It 'translates OpenAI requests and parses tool-call responses' {
         $env:POWERCLAW_TEST_OPENAI_KEY = 'test-openai-key'
 
@@ -514,6 +804,100 @@ Describe 'Loop behavior' {
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'Get-TopProcesses'
     }
 
+    It 'adds workflow-specific multi-tool guidance for health-check prompts' {
+        $script:CapturedSystemPrompt = $null
+
+        Mock Send-ClawRequest {
+            $script:CapturedSystemPrompt = $SystemPrompt
+            [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Add-Content {}
+        Mock Start-Sleep {}
+
+        $null = Invoke-ClawLoop `
+            -UserGoal 'Give me a full system health check' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-SystemSummary'
+                    Description = 'Gets system summary'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 1
+
+        $script:CapturedSystemPrompt | Should -Match 'combine a few complementary tools'
+        $script:CapturedSystemPrompt | Should -Match 'overall status first'
+    }
+
+    It 'adds workflow-specific recommendation guidance for cleanup prompts' {
+        $script:CapturedSystemPrompt = $null
+
+        Mock Send-ClawRequest {
+            $script:CapturedSystemPrompt = $SystemPrompt
+            [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Add-Content {}
+        Mock Start-Sleep {}
+
+        $null = Invoke-ClawLoop `
+            -UserGoal 'Find the biggest files in Downloads and tell me what I should clean up' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 1
+
+        $script:CapturedSystemPrompt | Should -Match 'Find the likely cleanup targets first'
+        $script:CapturedSystemPrompt | Should -Match 'should not stop at raw listings'
+    }
+
+    It 'adds workflow-specific summary guidance for read and investigate prompts' {
+        $script:CapturedSystemPrompt = $null
+
+        Mock Send-ClawRequest {
+            $script:CapturedSystemPrompt = $SystemPrompt
+            [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Add-Content {}
+        Mock Start-Sleep {}
+
+        $null = Invoke-ClawLoop `
+            -UserGoal 'Read config.json and explain my settings' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Read-FileContent'
+                    Description = 'Reads files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 1
+
+        $script:CapturedSystemPrompt | Should -Match 'start with a plain-English summary'
+        $script:CapturedSystemPrompt | Should -Match 'specific settings, warnings, or takeaways'
+        $script:CapturedSystemPrompt | Should -Match 'Implication or next step'
+    }
+
     It 'blocks repeated identical tool calls and tells the model to use the earlier result' {
         $script:CallCount = 0
         $script:CapturedMessages = @()
@@ -610,6 +994,167 @@ Describe 'Loop behavior' {
         $result | Should -Be 'handled dry run'
         $script:Executed | Should -BeFalse
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'dry run'
+    }
+
+    It 'uses simulated tool results in stub mode instead of executing the real tool' {
+        $script:Executed = $false
+
+        Mock Send-ClawRequest {
+            if (-not $script:StubCallCount) {
+                $script:StubCallCount = 1
+                return [PSCustomObject]@{
+                    Type      = 'tool_call'
+                    ToolName  = 'Get-TopProcesses'
+                    ToolInput = @{ SortBy = 'CPU'; Count = 5 }
+                    ToolUseId = 'toolu_stub_demo'
+                }
+            }
+
+            return [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'stubbed final answer'
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'What is eating my CPU?' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        throw 'should not run'
+                    }
+                }
+            ) `
+            -Config ([PSCustomObject]@{
+                max_output_chars = 500
+                log_file = 'powerclaw.log'
+            }) `
+            -MaxSteps 2 `
+            -UseStub
+
+        $result | Should -Be 'stubbed final answer'
+        $script:Executed | Should -BeFalse
+    }
+
+    It 'plan mode previews a short multi-step chain instead of stopping after step 1' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+        $script:PlanLines = [System.Collections.Generic.List[string]]::new()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-SystemSummary'
+                        ToolInput = @{ View = 'Full' }
+                        ToolUseId = 'toolu_plan_1'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-StorageStatus'
+                        ToolInput = @{ View = 'Summary' }
+                        ToolUseId = 'toolu_plan_2'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'Summarize health status after checking system and storage.'
+                    }
+                }
+            }
+        }
+
+        Mock Write-Host {
+            $script:PlanLines.Add(($Object -join ' '))
+        }
+        Mock Add-Content {}
+        Mock Start-Sleep {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Give me a full system health check' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-SystemSummary'
+                    Description = 'Gets system summary'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                },
+                [PSCustomObject]@{
+                    Name = 'Get-StorageStatus'
+                    Description = 'Gets storage status'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 4 `
+            -Plan
+
+        $result | Should -BeNullOrEmpty
+        $script:CallCount | Should -Be 3
+        ($script:PlanLines -join "`n") | Should -Match 'Intended tool chain'
+        ($script:PlanLines -join "`n") | Should -Match '1\. Get-SystemSummary'
+        ($script:PlanLines -join "`n") | Should -Match '2\. Get-StorageStatus'
+        ($script:PlanLines -join "`n") | Should -Match 'Summary: Summarize health status'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'Plan preview only'
+    }
+
+    It 'plan mode stops after a short preview limit when the model keeps chaining tools' {
+        $script:CallCount = 0
+        $script:PlanLines = [System.Collections.Generic.List[string]]::new()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            [PSCustomObject]@{
+                Type      = 'tool_call'
+                ToolName  = 'Get-TopProcesses'
+                ToolInput = @{ SortBy = 'CPU'; Count = $script:CallCount }
+                ToolUseId = "toolu_plan_limit_$script:CallCount"
+            }
+        }
+
+        Mock Write-Host {
+            $script:PlanLines.Add(($Object -join ' '))
+        }
+        Mock Add-Content {}
+        Mock Start-Sleep {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Plan a diagnostic run' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-TopProcesses'
+                    Description = 'Gets top processes'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 8 `
+            -Plan
+
+        $result | Should -BeNullOrEmpty
+        $script:CallCount | Should -Be 3
+        ($script:PlanLines -join "`n") | Should -Match '1\. Get-TopProcesses'
+        ($script:PlanLines -join "`n") | Should -Match '2\. Get-TopProcesses'
+        ($script:PlanLines -join "`n") | Should -Match '3\. Get-TopProcesses'
+        ($script:PlanLines -join "`n") | Should -Match 'Run without -Plan to execute these steps for real'
     }
 
     It 'blocks write tools when the user goal does not explicitly request a destructive change' {

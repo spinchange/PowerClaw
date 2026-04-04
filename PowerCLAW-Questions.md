@@ -1,6 +1,6 @@
 # PowerClaw — Question Bank
 
-A reference of prompts to explore what PowerClaw can do with its current 13 tools.
+A reference of prompts to explore what PowerClaw can do with its current default workbench plus optional overlays.
 
 ---
 
@@ -150,6 +150,8 @@ A reference of prompts to explore what PowerClaw can do with its current 13 tool
 ---
 
 ## Personal Knowledge
+
+*These prompts require the personal overlay, not the default workbench surface.*
 
 ### Search-MyJoNotes
 - "Search my devlog for anything about PowerClaw"

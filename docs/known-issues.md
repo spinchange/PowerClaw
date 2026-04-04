@@ -5,13 +5,15 @@ track but not yet resolved.
 
 ## Current issues
 
-### `Fetch-WebPage` has heavy local prerequisites
+### `Fetch-WebPage` onboarding still depends on extra local runtime setup
 
-It depends on a separate Playwright setup flow and browser install.
+`Fetch-WebPage` is part of the default workbench surface again, and now has a
+supported one-command installer, but it still depends on a local Playwright
+runtime and browser install.
 
 Impact:
-- useful capability, but not zero-setup
-- can fail on machines without the documented runtime
+- core product value still depends on an extra runtime dependency
+- can still fail in constrained hosts that block headless browser launch, even after install
 
 ### Provider live roundtrip coverage is still manual
 

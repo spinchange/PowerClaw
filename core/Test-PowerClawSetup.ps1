@@ -4,6 +4,11 @@ function Test-PowerClawSetup {
         [string]$ConfigPath = (Join-Path $PSScriptRoot '..\config.json')
     )
 
+    $webFetchRuntimePath = [System.Environment]::GetEnvironmentVariable('POWERCLAW_PLAYWRIGHT_BUILD')
+    if ([string]::IsNullOrWhiteSpace($webFetchRuntimePath)) {
+        $webFetchRuntimePath = Join-Path $env:USERPROFILE '.powerclaw-playwright\PwHost\PwHost\bin\Debug'
+    }
+
     $result = [ordered]@{
         ConfigPath         = $ConfigPath
         ConfigExists       = $false
@@ -16,6 +21,8 @@ function Test-PowerClawSetup {
         Model              = $null
         ApiKeyEnv          = $null
         ApiKeyPresent      = $false
+        WebFetchRuntimePath = $webFetchRuntimePath
+        WebFetchReady      = $false
         ModuleOnPsModulePath = $false
         LauncherOnPath     = $false
         PathEntriesChecked = @()
@@ -70,6 +77,12 @@ function Test-PowerClawSetup {
         }
     }
 
+    $result.WebFetchReady = Test-Path -LiteralPath $result.WebFetchRuntimePath
+    if (-not $result.WebFetchReady) {
+        $result.Issues += "Fetch-WebPage runtime is not installed. The default web tool depends on the Playwright setup."
+        $result.Recommendations += "Run: pwsh -File .\Install-PowerClawWebRuntime.ps1"
+    }
+
     $module = Get-Module -ListAvailable PowerClaw | Sort-Object Version -Descending | Select-Object -First 1
     if ($module) {
         $moduleRoot = Split-Path -Parent (Split-Path -Parent $module.Path)
@@ -96,7 +109,8 @@ function Test-PowerClawSetup {
 
     $result.Ready = ($result.Issues.Count -eq 0)
     if ($result.Ready) {
-        $result.Recommendations += "Setup looks good. Run: powerclaw -UseStub ""hello"""
+        $result.Recommendations += "Setup looks good. Run: powerclaw ""What's eating my CPU?"""
+        $result.Recommendations += "Then try: powerclaw ""Summarize https://news.ycombinator.com"""
     }
 
     [PSCustomObject]$result

@@ -1,5 +1,6 @@
 {
   "approved_tools": [
+    "Fetch-WebPage",
     "Get-TopProcesses",
     "Get-DirectoryListing",
     "Get-EventLogEntries",
@@ -12,7 +13,5 @@
     "Remove-Files",
     "Get-NetworkUsage"
   ],
-  "disabled_tools": [
-    "Fetch-WebPage"
-  ]
+  "disabled_tools": []
 }

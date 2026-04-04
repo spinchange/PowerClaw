@@ -30,6 +30,8 @@ defined in `tools/` and allowed by `tools-manifest.json`.
 - `Install-PowerClawOverlay.ps1`
   Helper for copying an overlay into an active repo or installed module tree and
   updating the active manifest safely.
+- `Install-PowerClawWebRuntime.ps1`
+  Supported installer for the default `Fetch-WebPage` Playwright runtime.
 - `tests/`
   Pester suite and legacy script-style regression tests.
 - `Run-Tests.ps1`

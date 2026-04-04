@@ -45,14 +45,15 @@ Assert-True "ContentQuery clause uses escaped literal helper" (
     $searchText -match '\$contentLiteral = ConvertTo-SearchSqlLiteral'
 )
 
-Write-Host "`n-- tools-manifest: portable defaults --" -ForegroundColor Cyan
+Write-Host "`n-- tools-manifest: default workbench surface --" -ForegroundColor Cyan
 $manifest = Get-Content (Join-Path $root "tools-manifest.json") -Raw | ConvertFrom-Json
 
 Assert-True "Get-SystemSummary is listed once" (
     (@($manifest.approved_tools | Where-Object { $_ -eq 'Get-SystemSummary' })).Count -eq 1
 )
-Assert-True "Fetch-WebPage disabled by default" (
-    'Fetch-WebPage' -in $manifest.disabled_tools
+Assert-True "Fetch-WebPage approved by default" (
+    'Fetch-WebPage' -in $manifest.approved_tools -and
+    'Fetch-WebPage' -notin $manifest.disabled_tools
 )
 Assert-True "Personal tools moved to overlay" (
     -not (Test-Path (Join-Path $root "tools\Search-MyJoNotes.ps1")) -and

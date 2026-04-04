@@ -14,22 +14,23 @@ PowerClaw is for:
 
 - Windows power users who want faster local diagnostics without giving a model unrestricted shell access
 - solo operators and technical builders who want plain-English access to services, logs, files, storage, and network state
-- people who value inspectability, confirmation on writes, and a portable default toolset
+- people who value inspectability, confirmation on writes, and a first-class Windows plus web investigation surface
 
 If you want a general-purpose cross-platform agent shell, this repo is intentionally narrower than that.
 
 ## Top 3 workflows
 
 1. **Machine triage**
-   Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings.
+   Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings. PowerClaw should synthesize the important signals into one operator summary, not just echo one tool.
 2. **File and storage cleanup**
-   Find large files, inspect Downloads, locate old installers, and confirm before delete actions.
+   Find large files, inspect Downloads, locate old installers, and confirm before delete actions. Cleanup answers should include what was found and what to review next.
 3. **Read and investigate**
    Summarize a webpage, inspect a local config or log, and connect what you read to system state.
 
 ## Requirements
 
 - PowerShell 7+
+- .NET SDK (for the one-time `Fetch-WebPage` Playwright host setup)
 - Anthropic or OpenAI API key
 - Windows 10/11
 
@@ -80,14 +81,29 @@ Import-Module .\PowerClaw.psd1
 
 This exports both `Invoke-PowerClaw` and the ergonomic alias `powerclaw`.
 
-**5. Validate setup**
+**5. Install the web runtime**
+`Fetch-WebPage` is part of the default workbench surface, so install its runtime
+with the supported one-command bootstrap:
+
+```powershell
+pwsh -File .\Install-PowerClawWebRuntime.ps1
+```
+
+This bootstraps the Playwright host project, builds it, and installs Chromium
+for the default `Fetch-WebPage` tool.
+
+If you want the underlying steps or a custom path, the installer script remains
+small and readable.
+
+**6. Validate setup**
 ```powershell
 Test-PowerClawSetup
 ```
 
-**6. Run a first prompt**
+**7. Run first prompts**
 ```powershell
 powerclaw "What's eating my CPU?"
+powerclaw "Summarize https://news.ycombinator.com"
 ```
 
 ## Optional: Persistent local install
@@ -110,26 +126,8 @@ Then make sure:
 After that, `powerclaw` works as a real shell command in a new PowerShell session:
 
 ```powershell
+# Run the installed web-runtime bootstrap once from the installed module directory
 powerclaw "What's eating my CPU?"
-```
-
----
-
-## Optional: Enable Fetch-WebPage (Playwright setup)
-
-`Fetch-WebPage` is kept out of the default portable tool set because it requires
-extra local runtime setup. To enable it, move it from `disabled_tools` to
-`approved_tools` in `tools-manifest.json`, then complete the one-time Playwright
-browser install:
-
-```powershell
-$dir = "$env:USERPROFILE\.powerclaw-playwright\PwHost"
-mkdir $dir -Force; cd $dir
-dotnet new console -n PwHost --framework net10.0 --force
-cd PwHost
-dotnet add package Microsoft.Playwright
-dotnet build
-pwsh bin/Debug/net10.0/playwright.ps1 install chromium
 ```
 
 ---
@@ -145,9 +143,12 @@ powerclaw -Plan "Find the 10 biggest files in Downloads"
 
 # Workflow 3: read and investigate
 powerclaw "Read config.json and explain my settings"
+powerclaw "Summarize https://learn.microsoft.com/powershell/"
 
 # Safe testing without an API key
-powerclaw -UseStub "anything"
+powerclaw -UseStub "What's eating my CPU?"
+powerclaw -UseStub "Find the 10 biggest files in Downloads"
+powerclaw -UseStub "Summarize https://news.ycombinator.com"
 
 # Inspect the raw model traffic
 powerclaw -Verbose "What's eating my CPU?"
@@ -202,8 +203,12 @@ Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -Sk
 | `Search-Files` | Filesystem | Windows Search index queries |
 | `Read-FileContent` | Filesystem | Read and reason about any file |
 | `Remove-Files` | Filesystem | Delete specific full-path files, with protected-root blocks, a default batch ceiling, and single-file permanent delete |
+| `Fetch-WebPage` | Web | Fetch readable webpage text from static or JavaScript-rendered pages |
 
-Optional integrations such as `Fetch-WebPage` are kept disabled by default. Personal note-search tools such as `Search-MyJoNotes` and `Search-MnVault` now live under `overlays\personal\` so the main repo stays portable.
+`Fetch-WebPage` is part of the default workbench surface, but it depends on the
+one-time runtime install handled by `Install-PowerClawWebRuntime.ps1`. Personal note-search tools such
+as `Search-MyJoNotes` and `Search-MnVault` now live under `overlays\personal\`
+so the main repo stays portable across machines.
 
 To enable the personal overlay on one machine, copy the desired tool files from
 `overlays\personal\tools\` into your active `tools\` directory and add their
@@ -250,7 +255,7 @@ Risk levels: `ReadOnly` (runs freely) · `Write` (requires an explicit confirmat
 - **Loop-level write policy.** Write tools are blocked unless the user goal explicitly asks for a destructive change. Advisory requests such as “what looks safe to remove?” stay read-only.
 - **Destructive path policy.** `Remove-Files` requires fully qualified file paths, blocks deletion from Windows, System, Program Files, and ProgramData locations, caps delete batches by default, and allows permanent delete for only one file per call.
 - **`-DryRun` mode.** Skips execution of write tools entirely.
-- **`-Plan` mode.** Shows the first tool the model would call (step-1 preview). Run without `-Plan` to execute all steps.
+- **`-Plan` mode.** Shows a short intended tool chain preview before execution. Run without `-Plan` to execute the steps for real.
 - **Output truncation.** Tool output is capped at `max_output_chars` (config.json) before being sent to the API.
 - **Structured loop logs.** Each step writes structured append-only log entries with stable event/outcome pairs for requests, previews, blocks, declines, confirmations, executions, final answers, and aborts.
 
@@ -277,6 +282,8 @@ best-effort implementation detail rather than stable contract.
 `overlays\personal\` — optional machine-specific tools and an overlay manifest example.
 
 `Install-PowerClawOverlay.ps1` — helper to install an overlay into an active repo or installed module tree.
+
+`Install-PowerClawWebRuntime.ps1` — supported one-command installer for the default `Fetch-WebPage` runtime.
 
 ---
 

@@ -52,8 +52,9 @@ Adding or enabling tools should be straightforward without weakening safety.
 - Keep the README and website aligned around the same onboarding sequence and
   top workflows.
 - Preserve Anthropic and OpenAI as equally first-class setup paths.
-- Keep `Fetch-WebPage` documented as an optional capability with heavier local
-  prerequisites unless setup becomes materially simpler.
+- Treat `Fetch-WebPage` as part of the first-class workbench surface and make
+  its one-time runtime setup explicit in onboarding instead of hiding it behind
+  optional positioning.
 
 ### Priority 3: strengthen the extensibility story
 
@@ -78,7 +79,8 @@ Adding or enabling tools should be straightforward without weakening safety.
   and stable core fields for every entry.
 - Install and setup ergonomics improved with provider-specific example configs,
   clearer validation guidance, and better installed-module defaults.
-- `Fetch-WebPage` is no longer part of the default portable tool set.
+- `Fetch-WebPage` returned to the default workbench surface, and onboarding now
+  treats its Playwright setup as a first-class step.
 - Personal note-search tools moved into an optional overlay, and the repo now
   includes an overlay install helper for one-machine activation.
 - Tool-contract regression coverage now includes metadata parsing, defaults,

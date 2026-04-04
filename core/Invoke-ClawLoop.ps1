@@ -126,6 +126,168 @@ function Add-ClawToolResultTurn {
     return ,$Messages
 }
 
+function Show-ClawPlanPreview {
+    param(
+        [array]$PlanSteps,
+        [string]$PlanSummary
+    )
+
+    if (-not $PlanSteps -or $PlanSteps.Count -eq 0) {
+        Write-Host "`n[Plan] No tool steps were previewed." -ForegroundColor Yellow
+        return
+    }
+
+    Write-Host "`n[Plan] Intended tool chain:" -ForegroundColor Cyan
+    $index = 1
+    foreach ($planStep in $PlanSteps) {
+        Write-Host "  $index. $($planStep.Tool) [$($planStep.Risk)]" -ForegroundColor White
+        if ($planStep.Args -and $planStep.Args.Count -gt 0) {
+            foreach ($key in $planStep.Args.Keys) {
+                Write-Host "     $key = $($planStep.Args[$key])" -ForegroundColor Gray
+            }
+        }
+        $index++
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($PlanSummary)) {
+        Write-Host ""
+        Write-Host "  Summary: $PlanSummary" -ForegroundColor DarkGray
+    }
+
+    Write-Host "`nRun without -Plan to execute these steps for real." -ForegroundColor DarkGray
+}
+
+function Get-ClawStubToolResult {
+    param(
+        [string]$ToolName,
+        [hashtable]$ToolInput,
+        [string]$UserGoal
+    )
+
+    switch ($ToolName) {
+        'Get-SystemSummary' {
+            return @'
+MachineName : DEMO-PC
+OSVersion   : Windows 11 Pro
+Uptime      : 4d 6h 12m
+CPULoadPct  : 18
+RAMUsedPct  : 63
+TopByCPU    : pwsh (14.2 CPU), chrome (9.8 CPU), Code (4.1 CPU)
+TopByMemory : chrome (1240 MB), Code (812 MB), pwsh (220 MB)
+'@
+        }
+        'Get-TopProcesses' {
+            $sortBy = if ($ToolInput -and $ToolInput.ContainsKey('SortBy')) { $ToolInput.SortBy } else { 'CPU' }
+            if ($sortBy -eq 'Memory') {
+                return @'
+Name Id CPU MemoryMB
+chrome 14120 88.7 1240.0
+Code 22044 31.5 812.0
+pwsh 19888 12.1 220.0
+'@
+            }
+
+            return @'
+Name Id CPU MemoryMB
+pwsh 19888 114.2 220.0
+chrome 14120 48.7 1240.0
+Code 22044 22.4 812.0
+'@
+        }
+        'Search-Files' {
+            return @'
+Name Path SizeMB DateModified
+windows-iso-backup.zip C:\Users\chris\Downloads\windows-iso-backup.zip 5820.4 2026-03-28
+obs-recording.mp4 C:\Users\chris\Downloads\obs-recording.mp4 2144.8 2026-04-02
+driver-pack.exe C:\Users\chris\Downloads\driver-pack.exe 812.1 2026-02-11
+'@
+        }
+        'Read-FileContent' {
+            $path = if ($ToolInput -and $ToolInput.ContainsKey('Path')) { $ToolInput.Path } else { 'README.md' }
+            return @"
+Path       : $path
+LinesShown : 12
+Truncated  : False
+Content    : provider=claude
+             model=claude-sonnet-4-20250514
+             api_key_env=CLAUDE_API_KEY
+             max_steps=8
+"@
+        }
+        'Fetch-WebPage' {
+            $url = if ($ToolInput -and $ToolInput.ContainsKey('Url')) { $ToolInput.Url } else { 'https://example.com' }
+            return @"
+Url        : $url
+Title      : Demo Page Summary
+Characters : 1240
+Truncated  : False
+Content    : Top stories focus on browser automation, Windows tooling, and local AI workflows. The front page is heavy on product launches and release notes.
+"@
+        }
+        'Get-DirectoryListing' {
+            return @'
+Name Length LastWriteTime PSIsContainer
+Invoices false 2026-04-03
+setup-notes.txt 8204 2026-04-02 False
+gpu-driver.exe 402345678 2026-03-18 False
+'@
+        }
+        default {
+            return "[Stub tool result] Simulated output for $ToolName based on the request: $UserGoal"
+        }
+    }
+}
+
+function Get-ClawWorkflowPromptHints {
+    param(
+        [string]$UserGoal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserGoal)) {
+        return ''
+    }
+
+    $normalizedGoal = $UserGoal.ToLowerInvariant()
+    $hints = [System.Collections.Generic.List[string]]::new()
+
+    if (
+        $normalizedGoal -match '\bfull system health check\b' -or
+        $normalizedGoal -match '\bmachine health\b' -or
+        $normalizedGoal -match '\bfull health check\b' -or
+        $normalizedGoal -match '\bdiagnostic\b'
+    ) {
+        $hints.Add('WORKFLOW HINT: For health-check or diagnostic prompts, it is good to combine a few complementary tools before answering. Prefer a concise chain across system summary, storage, network, services, or recent event issues when those signals materially improve the answer.')
+        $hints.Add('WORKFLOW HINT: For a health check final answer, synthesize into a short operator summary: overall status first, then the most important issues, then concrete next checks if needed.')
+        $hints.Add('WORKFLOW HINT: Health-check answers should feel like an operator readout, not a tool dump. Lead with whether the machine looks healthy, degraded, or needs attention.')
+    }
+
+    if (
+        $normalizedGoal -match '\bdownloads\b' -or
+        $normalizedGoal -match '\bbiggest files\b' -or
+        $normalizedGoal -match '\bcleanup\b' -or
+        $normalizedGoal -match '\bclean up\b' -or
+        $normalizedGoal -match '\bwhat should i clean\b'
+    ) {
+        $hints.Add('WORKFLOW HINT: For cleanup and biggest-file prompts, it is acceptable to chain discovery plus context. Find the likely cleanup targets first, then summarize what they are, how large they are, and what you would review before deletion.')
+        $hints.Add('WORKFLOW HINT: Cleanup answers should not stop at raw listings. Include a short recommendation section such as what looks safe to review, what is ambiguous, and whether the user should preview or confirm anything.')
+        $hints.Add('WORKFLOW HINT: Cleanup final answers should usually follow this order: what I found, what looks worth reviewing, what is ambiguous or risky, then the next safe action.')
+    }
+
+    if (
+        $normalizedGoal -match '\bread\b' -or
+        $normalizedGoal -match '\bconfig\b' -or
+        $normalizedGoal -match '\blog\b' -or
+        $normalizedGoal -match '\bmanifest\b' -or
+        $normalizedGoal -match '\breadme\b' -or
+        $normalizedGoal -match 'https?://'
+    ) {
+        $hints.Add('WORKFLOW HINT: For read, config, log, and webpage investigation prompts, start with a plain-English summary before details.')
+        $hints.Add('WORKFLOW HINT: After the summary, pull out the specific settings, warnings, or takeaways that matter. If the content suggests an action, end with the implication or next step.')
+    }
+
+    return ($hints -join "`n")
+}
+
 function Invoke-ClawLoop {
     [CmdletBinding()]
     param(
@@ -145,6 +307,7 @@ function Invoke-ClawLoop {
         [switch]$UseStub
     )
 
+    $workflowHints = Get-ClawWorkflowPromptHints -UserGoal $UserGoal
     $systemPrompt = @"
 You are PowerClaw, a Windows automation agent running on PowerShell 7.
 You have access to the provided tools. Use them to accomplish the user's goal.
@@ -155,6 +318,7 @@ RULES:
 - If a tool fails, report the error as your final answer. Do not retry with a different path or arguments.
 - Use the minimum number of tool calls necessary. One tool call is usually enough — answer immediately from its output rather than gathering more data from additional tools.
 - Do not call the same tool twice with different parameters unless the user explicitly asked for multiple queries.
+- When the user's workflow clearly needs synthesis across multiple signals, a short multi-tool chain is better than a thin single-tool answer.
 
 ENVIRONMENT:
 - Username: $env:USERNAME
@@ -163,6 +327,8 @@ ENVIRONMENT:
 - Downloads: $env:USERPROFILE\Downloads
 - Documents: $env:USERPROFILE\Documents
 - Computer: $env:COMPUTERNAME
+
+$workflowHints
 "@
 
     if (-not $Config) {
@@ -175,6 +341,9 @@ ENVIRONMENT:
     $messages = @(@{ role = "user"; content = $UserGoal })
     $seenToolCalls = @{}
     $userExplicitlyRequestedWrite = Test-ClawExplicitWriteIntent -UserGoal $UserGoal
+    $planSteps = [System.Collections.Generic.List[object]]::new()
+    $planSummary = $null
+    $maxPlanPreviewSteps = [Math]::Min($MaxSteps, 3)
 
     for ($step = 1; $step -le $MaxSteps; $step++) {
         Write-Host "`n[Step $step/$MaxSteps]" -ForegroundColor DarkGray
@@ -241,6 +410,19 @@ ENVIRONMENT:
 
         # ── Final answer ──
         if ($response.Type -eq "final_answer") {
+            if ($Plan) {
+                $planSummary = $response.Content
+                Show-ClawPlanPreview -PlanSteps @($planSteps) -PlanSummary $planSummary
+                Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                    Event       = 'plan_preview'
+                    Step        = $step
+                    Outcome     = 'previewed'
+                    StepCount   = $planSteps.Count
+                    PlanSummary = $planSummary
+                }
+                return $null
+            }
+
             Write-Host "`n[Answer]" -ForegroundColor Green
             Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                 Event   = 'final_answer'
@@ -304,28 +486,29 @@ ENVIRONMENT:
 
             $seenToolCalls[$toolCallFingerprint] = $true
 
-            # ── Plan mode: print step 1 and stop ──
-            # Note: -Plan shows only the first action Claude would take, not a full
-            # multi-step plan. For prompts that require chaining, only step 1 is shown.
             if ($Plan) {
-                Write-Host "`n[Plan] First action the model would take:" -ForegroundColor Cyan
-                Write-Host "  Tool: $toolName" -ForegroundColor White
-                Write-Host "  Risk: $($tool.Risk)" -ForegroundColor $(if ($tool.Risk -eq 'ReadOnly') { 'Green' } else { 'Yellow' })
-                Write-Host "  Args:" -ForegroundColor White
-                foreach ($key in $toolInput.Keys) {
-                    Write-Host "    $key = $($toolInput[$key])" -ForegroundColor Gray
+                $planSteps.Add([PSCustomObject]@{
+                    Tool = $toolName
+                    Risk = $tool.Risk
+                    Args = $toolInput
+                }) | Out-Null
+
+                $planToolResult = "Plan preview only: $toolName was not executed. Continue by previewing the next intended step or return a concise plan summary based on the intended chain so far. Do not assume real tool output."
+                $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $planToolResult
+
+                if ($planSteps.Count -ge $maxPlanPreviewSteps) {
+                    Show-ClawPlanPreview -PlanSteps @($planSteps) -PlanSummary $null
+                    Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                        Event     = 'plan_preview'
+                        Step      = $step
+                        Outcome   = 'previewed'
+                        StepCount = $planSteps.Count
+                        Reason    = 'plan_step_limit_reached'
+                    }
+                    return $null
                 }
-                Write-Host "`nRun without -Plan to execute all steps." -ForegroundColor DarkGray
-                Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
-                    Event     = 'plan_preview'
-                    Step      = $step
-                    Outcome   = 'previewed'
-                    Tool      = $toolName
-                    ToolUseId = $response.ToolUseId
-                    Risk      = $tool.Risk
-                    Args      = $toolInput
-                }
-                return $null
+
+                continue
             }
 
             # Safety check
@@ -404,22 +587,28 @@ ENVIRONMENT:
             if (-not $DryRun -or $tool.Risk -eq 'ReadOnly') {
                 Write-Host "[Executing] $toolName" -ForegroundColor Cyan
                 $startedAt = Get-Date
-                try {
-                    $splatArgs = @{}
-                    foreach ($key in $toolInput.Keys) {
-                        $splatArgs[$key] = $toolInput[$key]
-                    }
-                    $toolResult = & $tool.ScriptBlock @splatArgs | Out-String
-                    if ($toolResult.Length -gt $maxOutputChars) {
-                        Write-Warning "Output truncated from $($toolResult.Length) to $maxOutputChars chars"
-                        $toolResult = $toolResult.Substring(0, $maxOutputChars) + "`n... (truncated — output limit reached. Summarize what you have above as your final answer. Do not call this tool again.)"
-                    }
+                if ($UseStub) {
+                    $toolResult = Get-ClawStubToolResult -ToolName $toolName -ToolInput $toolInput -UserGoal $UserGoal
                     $toolStatus = 'success'
                 }
-                catch {
-                    $toolResult = "${toolName} failed: $_. Do not retry — report this error as your final answer."
-                    Write-Host "[Error] ${toolName} failed: $_" -ForegroundColor Red
-                    $toolStatus = 'error'
+                else {
+                    try {
+                        $splatArgs = @{}
+                        foreach ($key in $toolInput.Keys) {
+                            $splatArgs[$key] = $toolInput[$key]
+                        }
+                        $toolResult = & $tool.ScriptBlock @splatArgs | Out-String
+                        if ($toolResult.Length -gt $maxOutputChars) {
+                            Write-Warning "Output truncated from $($toolResult.Length) to $maxOutputChars chars"
+                            $toolResult = $toolResult.Substring(0, $maxOutputChars) + "`n... (truncated — output limit reached. Summarize what you have above as your final answer. Do not call this tool again.)"
+                        }
+                        $toolStatus = 'success'
+                    }
+                    catch {
+                        $toolResult = "${toolName} failed: $_. Do not retry — report this error as your final answer."
+                        Write-Host "[Error] ${toolName} failed: $_" -ForegroundColor Red
+                        $toolStatus = 'error'
+                    }
                 }
 
                 $durationMs = [int]((Get-Date) - $startedAt).TotalMilliseconds

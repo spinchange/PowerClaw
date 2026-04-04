@@ -40,6 +40,7 @@ $copyItems = @(
     "PowerClaw.psm1",
     "powerclaw.ps1",
     "Install-PowerClawOverlay.ps1",
+    "Install-PowerClawWebRuntime.ps1",
     "client",
     "core",
     "overlays",
@@ -90,15 +91,18 @@ Write-Host "Installed $moduleName $moduleVersion to $destination"
 if (-not $SkipLauncher) {
     Write-Host "Installed launcher to $launcherDestination"
 }
+$webRuntimeInstallerPath = Join-Path $destination 'Install-PowerClawWebRuntime.ps1'
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Cyan
 Write-Host "  1. Ensure '$ModuleRoot' is on PSModulePath." -ForegroundColor Gray
 if (-not $SkipLauncher) {
     Write-Host "  2. Ensure '$BinRoot' is on PATH." -ForegroundColor Gray
     Write-Host "  3. Edit '$installedConfigPath' or replace it with config.openai.example.json / config.claude.example.json." -ForegroundColor Gray
-    Write-Host "  4. Open a new PowerShell session and run: powerclaw -UseStub ""hello""" -ForegroundColor Gray
+    Write-Host "  4. Install the web runtime: pwsh -File '$webRuntimeInstallerPath'" -ForegroundColor Gray
+    Write-Host "  5. Open a new PowerShell session and run: powerclaw ""What's eating my CPU?""" -ForegroundColor Gray
 } else {
     Write-Host "  2. Edit '$installedConfigPath' or replace it with config.openai.example.json / config.claude.example.json." -ForegroundColor Gray
-    Write-Host "  3. Import the module and run: powerclaw -UseStub ""hello""" -ForegroundColor Gray
+    Write-Host "  3. Install the web runtime: pwsh -File '$webRuntimeInstallerPath'" -ForegroundColor Gray
+    Write-Host "  4. Import the module and run: powerclaw ""What's eating my CPU?""" -ForegroundColor Gray
 }
-Write-Host "  5. Run Test-PowerClawSetup after setting your API key." -ForegroundColor Gray
+Write-Host "  6. Run Test-PowerClawSetup after setting your API key." -ForegroundColor Gray

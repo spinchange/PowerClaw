@@ -63,6 +63,16 @@ Why:
 - personal integrations are valid, but should be opt-in
 - the portable core is clearer when machine-specific tools are physically separate
 
+### Web fetch is part of the first-class default workbench
+
+`Fetch-WebPage` should remain in the default approved tool set even though it
+requires a one-time local Playwright setup.
+
+Why:
+- webpage investigation is part of the intended core workbench value, not a side capability
+- the top workflow set is more coherent when web, config, and log investigation stay together
+- the right fix for runtime friction is better onboarding, not demotion out of the product surface
+
 ### Provider choice is implementation detail, not primary product identity
 
 PowerClaw can support multiple LLM providers, but the core product promise is the

@@ -549,7 +549,7 @@
       <div><span class="t-cyan">PowerClaw v0.3</span></div>
       <div><span class="t-dim">Prompt: Give me a full system health check</span></div>
       <br>
-      <div><span class="t-dim">[PowerClaw] Registered 11 tools: Get-EventLogEntries, Get-NetworkStatus, Get-StorageStatus...</span></div>
+      <div><span class="t-dim">[PowerClaw] Registered 12 tools: Fetch-WebPage, Get-EventLogEntries, Get-NetworkStatus...</span></div>
       <br>
       <div><span class="t-dim">[Step 1/8]</span></div>
       <div><span class="t-cyan">[Executing]</span> Get-NetworkStatus</div>
@@ -646,8 +646,8 @@
 <!-- Tools -->
 <section id="tools">
   <div class="section-label"># Tools</div>
-  <h2>11 default tools + optional integrations</h2>
-  <p class="section-sub">The portable default toolset covers machine health, files, networking, and local reads. Heavier optional integrations exist, but stay outside the default onboarding path.</p>
+  <h2>12 default tools in the workbench</h2>
+  <p class="section-sub">The default workbench covers machine health, files, networking, local reads, and webpage investigation. Personal overlays stay outside the default onboarding path.</p>
 
   <div class="tools-grid">
 
@@ -742,6 +742,15 @@
     </div>
 
     <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Fetch-WebPage</h3>
+        <p>Fetch readable text from static or JavaScript-rendered pages for research, docs, and live web investigation.</p>
+        <div class="tool-cat">Web</div>
+      </div>
+    </div>
+
+    <div class="tool">
       <div class="tool-risk risk-write">Write</div>
       <div class="tool-info">
         <h3>Remove-Files</h3>
@@ -753,7 +762,7 @@
   </div>
 
   <div class="tools-note">
-    <strong>Optional integrations:</strong> heavier tools such as <code>Fetch-WebPage</code> stay disabled by default, and machine-specific note-search tools now live under <code>overlays\personal\</code> instead of the main portable tool directory.
+    <strong>Runtime note:</strong> <code>Fetch-WebPage</code> is part of the default workbench surface, but it needs a one-time Playwright browser setup during onboarding. Machine-specific note-search tools still live under <code>overlays\personal\</code> instead of the main portable tool directory.
   </div>
 </section>
 
@@ -763,7 +772,7 @@
 <section id="install">
   <div class="section-label"># Setup</div>
   <h2>Get started</h2>
-  <p class="section-sub">Requires PowerShell 7+ and an Anthropic or OpenAI API key. The onboarding flow below matches the repo README.</p>
+  <p class="section-sub">Requires PowerShell 7+, a .NET SDK for the web host setup, and an Anthropic or OpenAI API key. The onboarding flow below matches the repo README.</p>
 
   <div class="install-steps">
 
@@ -813,42 +822,37 @@ $env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
     <div class="step">
       <div class="step-num">5</div>
       <div class="step-content">
-        <h3>Validate setup</h3>
-        <pre>Test-PowerClawSetup</pre>
+        <h3>Install the web runtime</h3>
+        <pre><span class="comment"># One-command bootstrap for the default Fetch-WebPage tool</span>
+pwsh -File .\Install-PowerClawWebRuntime.ps1</pre>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">6</div>
       <div class="step-content">
-        <h3>Run a first prompt</h3>
-        <pre>powerclaw <span class="string">"What's eating my CPU?"</span></pre>
+        <h3>Validate setup</h3>
+        <pre>Test-PowerClawSetup</pre>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">7</div>
       <div class="step-content">
-        <h3>Optional: install a real shell command</h3>
-        <pre>pwsh -File .\Install-PowerClaw.ps1 `
-  -ModuleRoot C:\dev\powershell-modules `
-  -BinRoot C:\dev\bin</pre>
-        <p style="margin-top:0.75rem;color:var(--ps-gray);font-size:0.8rem;">The installer copies the example configs and seeds <code>config.json</code> in the installed module directory if needed.</p>
+        <h3>Run first prompts</h3>
+        <pre>powerclaw <span class="string">"What's eating my CPU?"</span>
+powerclaw <span class="string">"Summarize https://news.ycombinator.com"</span></pre>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">8</div>
       <div class="step-content">
-        <h3>Optional: enable Fetch-WebPage</h3>
-        <pre><span class="comment"># First enable Fetch-WebPage in tools-manifest.json, then install Playwright</span>
-$dir = <span class="string">"$env:USERPROFILE\.powerclaw-playwright\PwHost"</span>
-mkdir $dir -Force; cd $dir
-dotnet new console -n PwHost --framework net10.0 --force
-cd PwHost
-dotnet add package Microsoft.Playwright
-dotnet build
-pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
+        <h3>Optional: install a real shell command</h3>
+        <pre>pwsh -File .\Install-PowerClaw.ps1 `
+  -ModuleRoot C:\dev\powershell-modules `
+  -BinRoot C:\dev\bin</pre>
+        <p style="margin-top:0.75rem;color:var(--ps-gray);font-size:0.8rem;">The installer copies the example configs and seeds <code>config.json</code> in the installed module directory if needed.</p>
       </div>
     </div>
 
@@ -882,7 +886,7 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
     </div>
     <div class="trust-card">
       <h3>Preview mode</h3>
-      <p><code>-Plan</code> shows the first action PowerClaw would take. It is a fast way to inspect intent before running anything.</p>
+      <p><code>-Plan</code> shows a short intended tool chain before execution. It is a fast way to inspect intent before running anything.</p>
     </div>
     <div class="trust-card">
       <h3>Stub mode and logs</h3>
@@ -914,7 +918,7 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
 
     <div class="story-card">
       <h3>3. Read and investigate</h3>
-      <p><strong>Use PowerClaw when the answer sits across a webpage, config, or log file.</strong> Fetch readable page text, inspect local files, and connect what you read back to Windows state.</p>
+      <p><strong>Use PowerClaw when the answer sits across a webpage, config, or log file.</strong> Fetch readable page text as a first-class tool, inspect local files, and connect what you read back to Windows state.</p>
       <pre>powerclaw <span class="string">"Read config.json and explain my settings"</span></pre>
     </div>
   </div>
