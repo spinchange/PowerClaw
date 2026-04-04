@@ -25,6 +25,17 @@ Impact:
 - safer refactors
 - but live API compatibility still needs occasional manual verification
 
+### Real answer quality still depends heavily on provider behavior
+
+Flagship workflows now have better planning and stronger final-answer guidance,
+but the real provider-backed experience can still vary more than the product
+should ultimately tolerate.
+
+Impact:
+- answers are usually more product-shaped than before
+- but multi-tool synthesis quality is still prompt-led rather than enforced
+- occasional weak summaries or under-integrated final answers are still plausible
+
 ### Write-tool safety is confirmation-based, not policy-rich
 
 Destructive tools now require an explicit typed confirmation token, but still rely
@@ -50,10 +61,11 @@ Impact:
 - less ambiguous than before for write-path analysis
 - but downstream tooling or user expectations could still become fragile if the shape changes casually
 
-### Default product narrative is stronger than the current docs architecture
+### Product-documentation alignment still requires deliberate maintenance
 
-The product has a clear trust-and-Windows-native story, but roadmap and supporting
-docs can drift back toward engineering-task language if not maintained deliberately.
+The main README and homepage are now materially more aligned than before, but
+supporting docs can still drift back toward engineering-task language if not
+maintained deliberately.
 
 Impact:
 - priorities can become implementation-led instead of product-led

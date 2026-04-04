@@ -42,6 +42,8 @@ Adding or enabling tools should be straightforward without weakening safety.
 
 - Strengthen destructive-tool safety beyond confirmation tokens and current path
   policy checks where practical.
+- Improve real provider-backed answer consistency for flagship workflows,
+  especially multi-tool health-check, cleanup, and investigation prompts.
 - Decide whether the structured log contract should expand beyond the current
   minimal supported subset.
 - Keep live provider verification easy to run while preserving the fast offline
@@ -68,6 +70,13 @@ Adding or enabling tools should be straightforward without weakening safety.
 
 - Public-facing README and homepage copy now align around the same ICP, the same
   onboarding sequence, and the same top workflows.
+- `Invoke-ClawLoop` now gives flagship workflows more explicit answer-shaping
+  guidance so health checks, cleanup prompts, and investigation prompts return
+  more operator-style summaries.
+- `-Plan` now previews a short intended tool chain instead of only the first
+  tool request, and stub mode now mirrors that behavior for flagship workflows.
+- `-UseStub` now behaves like a believable no-key product demo instead of a
+  generic loop smoke path.
 - `Invoke-ClawLoop` coverage is materially stronger around unavailable tools,
   repeated tool calls, write confirmations, execution failures, truncation, and
   structured logging behavior.
