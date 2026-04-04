@@ -40,12 +40,12 @@ Adding or enabling tools should be straightforward without weakening safety.
 
 ### Priority 1: sharpen the default product experience
 
-- Tighten the README and website around the current product story:
-  Windows-first, provider-configurable, registry-based, safe by default.
-- Update public-facing copy that still implies Claude-only behavior where the
-  product now supports multiple providers.
-- Make the default tool set feel intentional and portable, with optional extras
-  clearly separated from the core experience.
+- Keep the README and website aligned around the same onboarding sequence and
+  the same top workflows.
+- Continue refining the public ICP around Windows-native operations rather than
+  broad “agent framework” language.
+- Preserve the default tool set as an intentional portable core, with optional
+  extras clearly separated from the default product.
 
 ### Priority 2: deepen trust and inspectability
 
@@ -61,8 +61,8 @@ Adding or enabling tools should be straightforward without weakening safety.
 
 - Improve install and upgrade ergonomics for local module deployment.
 - Clarify provider setup so Anthropic and OpenAI both feel first-class.
-- Reassess whether `Fetch-WebPage` belongs in the core onboarding path or should
-  be framed as an optional capability with heavier prerequisites.
+- Keep `Fetch-WebPage` documented as an optional capability with heavier local
+  prerequisites unless setup becomes materially simpler.
 
 ### Priority 4: strengthen the extensibility story
 

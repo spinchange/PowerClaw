@@ -507,7 +507,7 @@
   <div class="nav-links">
     <a href="#tools">Tools</a>
     <a href="#install">Install</a>
-    <a href="#prompts">Prompts</a>
+    <a href="#workflows">Workflows</a>
     <a href="https://github.com/spinchange/PowerClaw">GitHub</a>
   </div>
 </nav>
@@ -517,17 +517,17 @@
   <div class="hero-badge">PowerShell · Windows-Native · Tool Registry Safety</div>
   <h1><span class="ps">Power</span><span class="claw">Claw</span></h1>
   <p class="hero-sub">
-    A Windows-native agentic workbench built on PowerShell 7.<br>
-    <strong>Describe what you want. The model picks the tool. PowerShell runs it.</strong>
+    Built for Windows power users, solo operators, and technical builders who want local automation without unrestricted shell generation.<br>
+    <strong>Describe the task. PowerClaw picks an approved tool. PowerShell runs it.</strong>
   </p>
   <ul class="hero-points">
     <li><strong>Safe by design.</strong> PowerClaw does not generate arbitrary shell commands.</li>
-    <li><strong>Actually useful on Windows.</strong> Services, event logs, file search, storage, and local ops are first-class.</li>
+    <li><strong>Sharp Windows focus.</strong> Services, event logs, storage, file search, and local diagnostics are the core surface.</li>
     <li><strong>Inspectable.</strong> Preview actions, confirm writes, and review what happened after every run.</li>
   </ul>
   <div class="btn-group">
     <a class="btn btn-primary" href="#install">Get Started</a>
-    <a class="btn btn-secondary" href="https://github.com/spinchange/PowerClaw">View on GitHub</a>
+    <a class="btn btn-secondary" href="#workflows">See Top Workflows</a>
   </div>
 </div>
 
@@ -577,7 +577,7 @@
 <section>
   <div class="section-label"># Why</div>
   <h2>Not another shell wrapper</h2>
-  <p class="section-sub">PowerClaw is built around trust and Windows usefulness, not around letting a model improvise commands on your machine.</p>
+  <p class="section-sub">PowerClaw is for Windows operators who want faster local work without handing a model free-form command execution.</p>
 
   <div class="story-grid">
     <div class="story-card">
@@ -601,7 +601,7 @@
 <section>
   <div class="section-label"># Design</div>
   <h2>How it works</h2>
-  <p class="section-sub">Six principles that make PowerClaw different from asking a model to generate raw shell commands directly.</p>
+  <p class="section-sub">The design is intentionally narrow: useful Windows operations, strong safety boundaries, and a fast path to a first real result.</p>
 
   <div class="principles">
     <div class="principle">
@@ -647,7 +647,7 @@
 <section id="tools">
   <div class="section-label"># Tools</div>
   <h2>12 default tools + optional personal integrations</h2>
-  <p class="section-sub">The default portable toolset covers system health, files, networking, logs, and web. Personal knowledge tools exist, but are optional and disabled by default.</p>
+  <p class="section-sub">The portable default toolset covers machine health, files, networking, logs, and web reads. Personal knowledge tools exist, but stay outside the default onboarding path.</p>
 
   <div class="tools-grid">
 
@@ -692,6 +692,15 @@
       <div class="tool-info">
         <h3>Get-NetworkStatus</h3>
         <p>Active interfaces, TCP connections, DNS servers, external IP.</p>
+        <div class="tool-cat">Network</div>
+      </div>
+    </div>
+
+    <div class="tool">
+      <div class="tool-risk risk-read">ReadOnly</div>
+      <div class="tool-info">
+        <h3>Get-NetworkUsage</h3>
+        <p>Per-process and connection-level network usage to spot who is talking and how much.</p>
         <div class="tool-cat">Network</div>
       </div>
     </div>
@@ -750,24 +759,10 @@
       </div>
     </div>
 
-    <div class="tool">
-      <div class="tool-risk risk-read">ReadOnly</div>
-      <div class="tool-info">
-        <h3>Search-MyJoNotes</h3>
-        <p>Full-text search across MyJo journal notebooks by keyword, tag, or date range.</p>
-        <div class="tool-cat">Personal</div>
-      </div>
-    </div>
+  </div>
 
-    <div class="tool">
-      <div class="tool-risk risk-read">ReadOnly</div>
-      <div class="tool-info">
-        <h3>Search-MnVault</h3>
-        <p>Search markdown notes in an mnvault knowledge base by keyword or tag.</p>
-        <div class="tool-cat">Personal</div>
-      </div>
-    </div>
-
+  <div class="tools-note">
+    <strong>Optional overlays:</strong> personal tools such as <code>Search-MyJoNotes</code> and <code>Search-MnVault</code> can live in the repo without becoming part of the default portable product.
   </div>
 </section>
 
@@ -777,7 +772,7 @@
 <section id="install">
   <div class="section-label"># Setup</div>
   <h2>Get started</h2>
-  <p class="section-sub">Requires PowerShell 7+ and an Anthropic or OpenAI API key.</p>
+  <p class="section-sub">Requires PowerShell 7+ and an Anthropic or OpenAI API key. The onboarding flow below matches the repo README.</p>
 
   <div class="install-steps">
 
@@ -794,26 +789,49 @@ cd PowerClaw</pre>
     <div class="step">
       <div class="step-num">2</div>
       <div class="step-content">
-        <h3>Set your API key</h3>
-        <pre><span class="comment"># Set for this session</span>
-$env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
-
-<span class="comment"># Or use OpenAI by setting config.json to provider=openai</span>
-<span class="comment"># and pointing api_key_env at your OpenAI key env var</span></pre>
+        <h3>Copy and edit the starter config</h3>
+        <pre>Copy-Item .\config.example.json .\config.json</pre>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-content">
-        <h3>Import and validate</h3>
-        <pre>Import-Module .\PowerClaw.psd1
-Test-PowerClawSetup</pre>
+        <h3>Set your API key</h3>
+        <pre><span class="comment"># Set for this session</span>
+$env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
+
+<span class="comment"># Or set provider=openai in config.json</span>
+<span class="comment"># and point api_key_env at OPENAI_API_KEY</span></pre>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">4</div>
+      <div class="step-content">
+        <h3>Import the module</h3>
+        <pre>Import-Module .\PowerClaw.psd1</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h3>Validate setup</h3>
+        <pre>Test-PowerClawSetup</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h3>Run a first prompt</h3>
+        <pre>powerclaw <span class="string">"What's eating my CPU?"</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">7</div>
       <div class="step-content">
         <h3>Optional: install a real shell command</h3>
         <pre>pwsh -File .\Install-PowerClaw.ps1 `
@@ -823,15 +841,7 @@ Test-PowerClawSetup</pre>
     </div>
 
     <div class="step">
-      <div class="step-num">5</div>
-      <div class="step-content">
-        <h3>Run a first prompt</h3>
-        <pre>powerclaw <span class="string">"What's eating my CPU?"</span></pre>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-num">6</div>
+      <div class="step-num">8</div>
       <div class="step-content">
         <h3>Optional: Playwright (for Fetch-WebPage)</h3>
         <pre><span class="comment"># One-time browser install</span>
@@ -878,78 +888,34 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
 
 <hr class="divider">
 
-<!-- Prompts -->
-<section id="prompts">
-  <div class="section-label"># Examples</div>
-  <h2>What to ask</h2>
-  <p class="section-sub">Plain English. PowerClaw figures out which approved tool — and what arguments — to use.</p>
+<!-- Workflows -->
+<section id="workflows">
+  <div class="section-label"># Workflows</div>
+  <h2>Start with these three</h2>
+  <p class="section-sub">PowerClaw can grow beyond these, but the default product story is strongest when it starts with the highest-value Windows workflows.</p>
 
-  <div class="prompts-grid">
-
-    <div class="prompt-group">
-      <h3>System Health</h3>
-      <ul>
-        <li>"Give me a full system health check"</li>
-        <li>"Is my machine under heavy load?"</li>
-        <li>"What's eating all my CPU?"</li>
-        <li>"Which services have stopped unexpectedly?"</li>
-        <li>"What errors happened in the last 24 hours?"</li>
-        <li>"When did my machine last reboot?"</li>
-      </ul>
+  <div class="story-grid">
+    <div class="story-card">
+      <h3>1. Machine triage</h3>
+      <p><strong>Use PowerClaw when your machine feels wrong and you want a fast, inspectable answer.</strong> Ask about CPU pressure, memory load, service failures, reboot timing, network state, and recent event log issues.</p>
+      <pre>powerclaw <span class="string">"Give me a full system health check"</span></pre>
     </div>
 
-    <div class="prompt-group">
-      <h3>Files &amp; Storage</h3>
-      <ul>
-        <li>"Find the 10 biggest files on my system"</li>
-        <li>"How much video content do I have?"</li>
-        <li>"What did I download last week?"</li>
-        <li>"Find all zip files over 100MB"</li>
-        <li>"Which drive is closest to full?"</li>
-        <li>"Delete the duplicate installer in Downloads"</li>
-      </ul>
+    <div class="story-card">
+      <h3>2. File and storage cleanup</h3>
+      <p><strong>Use PowerClaw to find the junk before you remove it.</strong> Search indexed files, inspect directory contents, identify large or stale items, then use preview or confirmation before anything destructive happens.</p>
+      <pre>powerclaw -Plan <span class="string">"Find the 10 biggest files in Downloads"</span></pre>
     </div>
 
-    <div class="prompt-group">
-      <h3>Network</h3>
-      <ul>
-        <li>"What's my external IP?"</li>
-        <li>"What's connected to my network right now?"</li>
-        <li>"Is anything making unexpected connections?"</li>
-        <li>"What DNS servers am I using?"</li>
-      </ul>
+    <div class="story-card">
+      <h3>3. Read and investigate</h3>
+      <p><strong>Use PowerClaw when the answer sits across a webpage, config, or log file.</strong> Fetch readable page text, inspect local files, and connect what you read back to Windows state.</p>
+      <pre>powerclaw <span class="string">"Read config.json and explain my settings"</span></pre>
     </div>
+  </div>
 
-    <div class="prompt-group">
-      <h3>Web &amp; Files</h3>
-      <ul>
-        <li>"Summarize the top stories on Hacker News"</li>
-        <li>"Fetch this article and summarize it: [URL]"</li>
-        <li>"Read my config.json and explain my settings"</li>
-        <li>"What does this log file say went wrong?"</li>
-      </ul>
-    </div>
-
-    <div class="prompt-group">
-      <h3>Multi-tool Chains</h3>
-      <ul>
-        <li>"Is my machine healthy? Full diagnostic."</li>
-        <li>"Find big old files in Downloads and clean them up"</li>
-        <li>"Check disk errors in event log, then show storage status"</li>
-        <li>"What process is spiking CPU and is it in the event log?"</li>
-      </ul>
-    </div>
-
-    <div class="prompt-group">
-      <h3>Flags</h3>
-      <ul>
-        <li><code>-Plan</code> &nbsp;— preview without running</li>
-        <li><code>-DryRun</code> — skip write tools</li>
-        <li><code>-Verbose</code> — see raw API JSON</li>
-        <li><code>-UseStub</code> — test without API key</li>
-      </ul>
-    </div>
-
+  <div class="tools-note">
+    <strong>Useful flags:</strong> <code>-Plan</code> previews intent, <code>-DryRun</code> skips write tools, <code>-Verbose</code> exposes raw API traffic, and <code>-UseStub</code> tests the loop without an API key.
   </div>
 </section>
 

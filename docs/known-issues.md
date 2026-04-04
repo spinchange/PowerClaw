@@ -5,15 +5,6 @@ track but not yet resolved.
 
 ## Current issues
 
-### Public-facing product copy is partially out of sync
-
-Some repo and website materials still reflect an older Claude-only framing or older
-tool counts.
-
-Impact:
-- weakens product clarity
-- makes the onboarding story less consistent than the codebase
-
 ### `Fetch-WebPage` has heavy local prerequisites
 
 It depends on a separate Playwright setup flow and browser install.

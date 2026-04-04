@@ -14,6 +14,17 @@ Why:
 - the product story is clearer when it leans into native OS strengths
 - it avoids competing on generic “agent framework” terms alone
 
+### Primary user fit: Windows power users and technical solo operators
+
+The primary ICP is users who already work comfortably in PowerShell and want
+plain-English help with local machine operations, without giving a model
+unconstrained shell access.
+
+Why:
+- matches the trust-first product design
+- aligns with the strongest current workflow set: diagnostics, cleanup, and investigation
+- keeps onboarding focused on high-value local tasks instead of generic agent claims
+
 ### Tool registry instead of arbitrary command generation
 
 PowerClaw allows the model to select only from approved PowerShell tools.
