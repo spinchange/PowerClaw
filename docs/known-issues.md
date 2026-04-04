@@ -29,7 +29,7 @@ Impact:
 - but provider compatibility can still drift later unless someone reruns the opt-in smoke checks
 - provider setup failures can still look like product breakage until diagnosed
 
-### Real answer quality still depends heavily on provider behavior
+### Real answer quality still depends too much on provider behavior outside deterministic reducers
 
 Flagship workflows now have better planning and stronger final-answer guidance,
 but the real provider-backed experience can still vary more than the product
@@ -37,20 +37,23 @@ should ultimately tolerate.
 
 Impact:
 - answers are usually more product-shaped than before
-- but multi-tool synthesis quality is still prompt-led rather than enforced
+- cleanup and investigation now have stronger enforced answer shaping than before
+- but multi-tool synthesis quality is still partly prompt-led rather than reducer-driven
 - occasional weak summaries or under-integrated final answers are still plausible
 
-### Write-tool safety is confirmation-based, not policy-rich
+### Write-tool safety is stronger, but still not fully policy-rich
 
 Destructive tools now require an explicit typed confirmation token, but still rely
-primarily on confirmation and tool-level discipline rather than richer policy
-controls.
+partly on confirmation and tool-level discipline rather than richer end-to-end
+policy controls.
 
 Impact:
 - acceptable for the current scope
 - improved by loop-level blocking when the user did not explicitly ask for a destructive change
 - improved by path-policy checks on `Remove-Files`
 - improved by default batch ceilings and single-file permanent delete limits
+- improved by explicit permanent-delete intent checks and more specific reference requirements for higher-risk target classes
+- improved by cleanup answers that now surface review-only versus execution-allowed candidate states before deletion
 - not sufficient for more advanced automation scenarios
 
 ### Structured loop logs are clearer than their current contract

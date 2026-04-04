@@ -96,6 +96,25 @@ function Test-ClawExplicitWriteIntent {
     return $false
 }
 
+function Test-ClawExplicitPermanentDeleteIntent {
+    param(
+        [string]$UserGoal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserGoal)) {
+        return $false
+    }
+
+    return (
+        $UserGoal -match '\bpermanent(?:ly)?\b' -or
+        $UserGoal -match '\bdelete permanently\b' -or
+        $UserGoal -match '\bpermanently delete\b' -or
+        $UserGoal -match '\berase forever\b' -or
+        $UserGoal -match '\bnot (?:to|into) recycle\b' -or
+        $UserGoal -match '\bbypass (?:the )?recycle bin\b'
+    )
+}
+
 function Test-ClawHealthCheckGoal {
     param(
         [string]$UserGoal
@@ -147,6 +166,25 @@ function Test-ClawCleanupGoal {
     )
 }
 
+function Test-ClawInvestigationGoal {
+    param(
+        [string]$UserGoal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserGoal)) {
+        return $false
+    }
+
+    return (
+        $UserGoal -match '\bread\b' -or
+        $UserGoal -match '\bconfig\b' -or
+        $UserGoal -match '\blog\b' -or
+        $UserGoal -match '\bmanifest\b' -or
+        $UserGoal -match '\breadme\b' -or
+        $UserGoal -match 'https?://'
+    )
+}
+
 function Test-ClawBroadCleanupDiscoveryTool {
     param(
         [string]$ToolName
@@ -191,6 +229,87 @@ function Test-ClawDeleteTargetsWerePreviouslyEnumerated {
     return $true
 }
 
+function Get-ClawDeleteTargetPolicy {
+    param(
+        [string]$Path
+    )
+
+    $extension = [System.IO.Path]::GetExtension(($Path ?? '')).ToLowerInvariant()
+
+    if ($extension -in @('.log', '.tmp', '.bak', '.old', '.dmp')) {
+        return 'low_risk'
+    }
+
+    if ($extension -in @(
+            '.exe', '.msi', '.msix', '.msu', '.iso',
+            '.zip', '.7z', '.rar', '.tar', '.gz', '.bz2',
+            '.mp3', '.wav', '.flac', '.mp4', '.mkv', '.avi', '.mov',
+            '.jpg', '.jpeg', '.png', '.webp',
+            '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+            '.ps1', '.psm1', '.psd1', '.json', '.config', '.xml', '.yml', '.yaml', '.md', '.txt', '.csv'
+        )) {
+        return 'requires_specific_reference'
+    }
+
+    return 'default'
+}
+
+function Test-ClawGoalReferencesDeleteTargetsSpecifically {
+    param(
+        [string]$UserGoal,
+        [hashtable]$ToolInput
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserGoal) -or -not $ToolInput -or -not $ToolInput.ContainsKey('Paths')) {
+        return $false
+    }
+
+    $normalizedGoal = $UserGoal.ToLowerInvariant()
+    foreach ($path in @($ToolInput.Paths)) {
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            continue
+        }
+
+        $fullPath = [string]$path
+        $leaf = [System.IO.Path]::GetFileName($fullPath)
+        $extension = [System.IO.Path]::GetExtension($fullPath).ToLowerInvariant()
+        $stem = [System.IO.Path]::GetFileNameWithoutExtension($fullPath)
+
+        if ($normalizedGoal -match [regex]::Escape($fullPath.ToLowerInvariant())) {
+            return $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($leaf) -and $normalizedGoal -match [regex]::Escape($leaf.ToLowerInvariant())) {
+            return $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($stem) -and $stem.Length -ge 4 -and $normalizedGoal -match [regex]::Escape($stem.ToLowerInvariant())) {
+            return $true
+        }
+        if (-not [string]::IsNullOrWhiteSpace($extension) -and $normalizedGoal -match [regex]::Escape($extension)) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Test-ClawDeleteTargetsNeedSpecificReference {
+    param(
+        [hashtable]$ToolInput
+    )
+
+    if (-not $ToolInput -or -not $ToolInput.ContainsKey('Paths')) {
+        return $false
+    }
+
+    foreach ($path in @($ToolInput.Paths)) {
+        if ((Get-ClawDeleteTargetPolicy -Path ([string]$path)) -eq 'requires_specific_reference') {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Add-ClawToolResultTurn {
     param(
         [array]$Messages,
@@ -219,6 +338,461 @@ function Add-ClawToolResultTurn {
     }
 
     return ,$Messages
+}
+
+function Test-ClawSyntheticToolResultContent {
+    param(
+        [string]$Content
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $true
+    }
+
+    return (
+        $Content -match '^Plan preview only:' -or
+        $Content -match '^Error: repeated tool call detected' -or
+        $Content -match '^Error: tool .+ is not available in the approved registry' -or
+        $Content -match '^Health-check latency budget reached:' -or
+        $Content -match '^Cleanup discovery budget reached:' -or
+        $Content -match '^Cleanup latency budget reached:' -or
+        $Content -match '^Investigation latency budget reached:' -or
+        $Content -match '^Blocked by write policy:' -or
+        $Content -match '^User declined to run ' -or
+        $Content -match '^\(dry run'
+    )
+}
+
+function Test-ClawSyntheticFinalAnswerContent {
+    param(
+        [string]$Content
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $true
+    }
+
+    return (
+        $Content -match '^handled\b' -or
+        $Content -match '^done$' -or
+        $Content -match '^stubbed final answer$' -or
+        $Content -match '^cleanup summary from\b' -or
+        $Content -match '^investigation summary from\b' -or
+        $Content -match '^health summary from\b'
+    )
+}
+
+function Get-ClawLatestToolEvidence {
+    param(
+        [array]$Messages
+    )
+
+    $toolName = $null
+    $toolResult = $null
+
+    for ($i = $Messages.Count - 1; $i -ge 0; $i--) {
+        $message = $Messages[$i]
+        if (
+            -not $toolResult -and
+            $message.role -eq 'user' -and
+            $message.content -is [array] -and
+            $message.content[0].type -eq 'tool_result' -and
+            -not (Test-ClawSyntheticToolResultContent -Content ([string]$message.content[0].content))
+        ) {
+            $toolResult = [string]$message.content[0].content
+            continue
+        }
+
+        if (
+            -not $toolName -and
+            $message.role -eq 'assistant' -and
+            $message.content -is [array] -and
+            $message.content[0].type -eq 'tool_use'
+        ) {
+            $toolName = [string]$message.content[0].name
+        }
+
+        if ($toolName -and $toolResult) {
+            break
+        }
+    }
+
+    if (-not $toolName -and -not $toolResult) {
+        return $null
+    }
+
+    $previewLines = @(
+        @($toolResult -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) |
+        Select-Object -First 6
+    )
+
+    return [PSCustomObject]@{
+        ToolName = $toolName
+        ToolResult = $toolResult
+        Preview = if ($previewLines.Count -gt 0) { $previewLines -join '; ' } else { '' }
+    }
+}
+
+function Get-ClawStructuredEvidencePreview {
+    param(
+        [string]$ToolName,
+        [string]$ToolResult
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ToolResult)) {
+        return ''
+    }
+
+    $lines = @($ToolResult -split "`r?`n")
+
+    switch ($ToolName) {
+        'Search-Files' {
+            $dataLines = @($lines | Where-Object { $_ -match '^[^\s].+\s+[A-Za-z]:\\' } | Select-Object -First 3)
+            if ($dataLines.Count -gt 0) {
+                return ($dataLines -join '; ')
+            }
+        }
+        'Get-DirectoryListing' {
+            $dataLines = @($lines | Where-Object { $_ -match '^[^\s].+\s+\d{4}-\d{2}-\d{2}' -or $_ -match '^[^\s].+\s+(True|False)$' } | Select-Object -First 3)
+            if ($dataLines.Count -gt 0) {
+                return ($dataLines -join '; ')
+            }
+        }
+        'Read-FileContent' {
+            $contentIndex = -1
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -match '^\s*Content\s*:\s*(.*)$') {
+                    $contentIndex = $i
+                    break
+                }
+            }
+
+            if ($contentIndex -ge 0) {
+                $contentLines = [System.Collections.Generic.List[string]]::new()
+                $firstContent = $Matches[1]
+                if (-not [string]::IsNullOrWhiteSpace($firstContent)) {
+                    $contentLines.Add($firstContent.Trim()) | Out-Null
+                }
+
+                for ($j = $contentIndex + 1; $j -lt $lines.Count; $j++) {
+                    if ($lines[$j] -match '^\s{2,}\S') {
+                        $contentLines.Add($lines[$j].Trim()) | Out-Null
+                        if ($contentLines.Count -ge 4) {
+                            break
+                        }
+                        continue
+                    }
+                    break
+                }
+
+                if ($contentLines.Count -gt 0) {
+                    return ($contentLines -join '; ')
+                }
+            }
+        }
+        'Fetch-WebPage' {
+            $titleLine = @($lines | Where-Object { $_ -match '^\s*Title\s*:' } | Select-Object -First 1)
+            $contentIndex = -1
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -match '^\s*Content\s*:\s*(.*)$') {
+                    $contentIndex = $i
+                    break
+                }
+            }
+
+            $parts = [System.Collections.Generic.List[string]]::new()
+            if ($titleLine) {
+                $parts.Add($titleLine[0].Trim()) | Out-Null
+            }
+            if ($contentIndex -ge 0) {
+                $contentText = $Matches[1].Trim()
+                if (-not [string]::IsNullOrWhiteSpace($contentText)) {
+                    $parts.Add($contentText) | Out-Null
+                }
+            }
+
+            if ($parts.Count -gt 0) {
+                return ($parts -join '; ')
+            }
+        }
+    }
+
+    $fallbackLines = @($lines | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 6)
+    if ($fallbackLines.Count -gt 0) {
+        return ($fallbackLines -join '; ')
+    }
+
+    return ''
+}
+
+function Get-ClawCleanupEvidenceGuidance {
+    param(
+        [string]$ToolName,
+        [string]$ToolResult
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ToolResult)) {
+        return 'Large installers, media, backups, or project artifacts may still be intentional, so size alone is not enough to call them safe to delete.'
+    }
+
+    $lines = @($ToolResult -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $installerHits = 0
+    $archiveHits = 0
+    $mediaHits = 0
+    $logHits = 0
+    $folderHits = 0
+
+    foreach ($line in $lines) {
+        $normalizedLine = $line.ToLowerInvariant()
+
+        if ($normalizedLine -match '\.(exe|msi|msix|msu|iso)\b') {
+            $installerHits++
+        }
+        if ($normalizedLine -match '\.(zip|7z|rar|tar|gz|bz2)\b') {
+            $archiveHits++
+        }
+        if ($normalizedLine -match '\.(mp3|wav|flac|mp4|mkv|avi|mov|jpg|jpeg|png|webp)\b') {
+            $mediaHits++
+        }
+        if ($normalizedLine -match '\.(log|tmp|bak|old|dmp)\b') {
+            $logHits++
+        }
+        if ($ToolName -eq 'Get-DirectoryListing' -and $normalizedLine -match '\btrue$') {
+            $folderHits++
+        }
+    }
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+
+    if ($installerHits -gt 0) {
+        $parts.Add('Installer images or setup packages can be disposable if they were only kept for one-time setup, but keep them if they are part of your normal reinstall path.') | Out-Null
+    }
+    if ($archiveHits -gt 0) {
+        $parts.Add('Archives may be backups or bundled deliverables, so confirm they are duplicated elsewhere before deleting them.') | Out-Null
+    }
+    if ($mediaHits -gt 0) {
+        $parts.Add('Large media files are often intentional recordings or downloads, so review recency and purpose before treating them as cleanup candidates.') | Out-Null
+    }
+    if ($logHits -gt 0) {
+        $parts.Add('Logs, temp files, dumps, or backup-style remnants are usually stronger cleanup candidates, but confirm they are not still needed for troubleshooting.') | Out-Null
+    }
+    if ($folderHits -gt 0) {
+        $parts.Add('Folders need an extra check because deleting them can remove multiple nested files, not just one surfaced item.') | Out-Null
+    }
+
+    if ($parts.Count -eq 0) {
+        return 'Large installers, media, backups, or project artifacts may still be intentional, so size alone is not enough to call them safe to delete.'
+    }
+
+    return ($parts -join ' ')
+}
+
+function Get-ClawCleanupReviewRanking {
+    param(
+        [string]$ToolName,
+        [string]$ToolResult
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ToolResult)) {
+        return 'Start with the most obviously disposable surfaced files first, then review anything that may be intentional before deleting it.'
+    }
+
+    $lines = @($ToolResult -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $categoryCounts = [ordered]@{
+        logs       = 0
+        installers = 0
+        archives   = 0
+        media      = 0
+        folders    = 0
+    }
+
+    foreach ($line in $lines) {
+        $normalizedLine = $line.ToLowerInvariant()
+
+        if ($normalizedLine -match '\.(log|tmp|bak|old|dmp)\b') {
+            $categoryCounts.logs++
+        }
+        if ($normalizedLine -match '\.(exe|msi|msix|msu|iso)\b') {
+            $categoryCounts.installers++
+        }
+        if ($normalizedLine -match '\.(zip|7z|rar|tar|gz|bz2)\b') {
+            $categoryCounts.archives++
+        }
+        if ($normalizedLine -match '\.(mp3|wav|flac|mp4|mkv|avi|mov|jpg|jpeg|png|webp)\b') {
+            $categoryCounts.media++
+        }
+        if ($ToolName -eq 'Get-DirectoryListing' -and $normalizedLine -match '\btrue$') {
+            $categoryCounts.folders++
+        }
+    }
+
+    $ranked = [System.Collections.Generic.List[string]]::new()
+    foreach ($entry in $categoryCounts.GetEnumerator()) {
+        if ([int]$entry.Value -gt 0) {
+            $ranked.Add([string]$entry.Key) | Out-Null
+        }
+    }
+
+    if ($ranked.Count -eq 0) {
+        return 'Start with the most obviously disposable surfaced files first, then review anything that may be intentional before deleting it.'
+    }
+
+    $labels = foreach ($category in $ranked) {
+        switch ($category) {
+            'logs' { 'logs, temp files, and dump-style remnants' }
+            'installers' { 'one-time installers or setup images' }
+            'archives' { 'archives and bundled backups' }
+            'media' { 'large media files' }
+            'folders' { 'folders last, because they can remove multiple nested items at once' }
+        }
+    }
+
+    return "Review order: $($labels -join ', then ')."
+}
+
+function Get-ClawCleanupCandidateStates {
+    param(
+        [string]$ToolName,
+        [string]$ToolResult
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ToolResult)) {
+        return 'review-only by default until the surfaced files are classified more clearly.'
+    }
+
+    $lines = @($ToolResult -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $hasLogs = $false
+    $hasInstallers = $false
+    $hasArchives = $false
+    $hasMedia = $false
+    $hasFolders = $false
+    $hasOther = $false
+
+    foreach ($line in $lines) {
+        $normalizedLine = $line.ToLowerInvariant()
+        $matched = $false
+
+        if ($normalizedLine -match '\.(log|tmp|bak|old|dmp)\b') {
+            $hasLogs = $true
+            $matched = $true
+        }
+        if ($normalizedLine -match '\.(exe|msi|msix|msu|iso)\b') {
+            $hasInstallers = $true
+            $matched = $true
+        }
+        if ($normalizedLine -match '\.(zip|7z|rar|tar|gz|bz2)\b') {
+            $hasArchives = $true
+            $matched = $true
+        }
+        if ($normalizedLine -match '\.(mp3|wav|flac|mp4|mkv|avi|mov|jpg|jpeg|png|webp)\b') {
+            $hasMedia = $true
+            $matched = $true
+        }
+        if ($ToolName -eq 'Get-DirectoryListing' -and $normalizedLine -match '\btrue$') {
+            $hasFolders = $true
+            $matched = $true
+        }
+
+        if (-not $matched -and $normalizedLine -notmatch '^(name|path|sizemb|datemodified|length|lastwritetime|psiscontainer)\b') {
+            $hasOther = $true
+        }
+    }
+
+    $allowed = [System.Collections.Generic.List[string]]::new()
+    $reviewOnly = [System.Collections.Generic.List[string]]::new()
+
+    if ($hasLogs) {
+        $allowed.Add('execution-allowed after confirmation: logs, temp files, dumps, and backup-style remnants that were already enumerated') | Out-Null
+    }
+    if ($hasInstallers) {
+        $reviewOnly.Add('review-only: installers and setup images unless the user names them specifically') | Out-Null
+    }
+    if ($hasArchives) {
+        $reviewOnly.Add('review-only: archives and backup bundles unless the user confirms they are redundant') | Out-Null
+    }
+    if ($hasMedia) {
+        $reviewOnly.Add('review-only: media files unless the user clearly identifies the exact recording or download') | Out-Null
+    }
+    if ($hasFolders) {
+        $reviewOnly.Add('review-only: folders because they can remove nested contents, not just one surfaced item') | Out-Null
+    }
+    if ($hasOther) {
+        $reviewOnly.Add('review-only: uncategorized files until the user names the exact file or type to remove') | Out-Null
+    }
+
+    $parts = [System.Collections.Generic.List[string]]::new()
+    if ($allowed.Count -gt 0) {
+        $parts.Add(($allowed -join '; ')) | Out-Null
+    }
+    if ($reviewOnly.Count -gt 0) {
+        $parts.Add(($reviewOnly -join '; ')) | Out-Null
+    }
+
+    if ($parts.Count -eq 0) {
+        return 'review-only by default until the surfaced files are classified more clearly.'
+    }
+
+    return ($parts -join '; ')
+}
+
+function Format-ClawFinalAnswer {
+    param(
+        [string]$Content,
+        [array]$Messages,
+        [bool]$IsCleanupGoal,
+        [bool]$IsInvestigationGoal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $Content
+    }
+
+    $trimmedContent = $Content.Trim()
+    $hasStructuredCleanupSections = $trimmedContent -match '(?im)^(what i found|what looks worth reviewing|what likely looks intentional|what is ambiguous|what is ambiguous or risky|next safe action)\s*:'
+    $hasStructuredInvestigationSections = $trimmedContent -match '(?im)^(answer|summary|evidence|implication|key details|key takeaways)\s*:'
+
+    if (Test-ClawSyntheticFinalAnswerContent -Content $trimmedContent) {
+        return $Content
+    }
+
+    if ($IsCleanupGoal -and -not $hasStructuredCleanupSections) {
+        $evidence = Get-ClawLatestToolEvidence -Messages $Messages
+        if (-not $evidence) {
+            return $Content
+        }
+        $evidencePreview = Get-ClawStructuredEvidencePreview -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+        if ([string]::IsNullOrWhiteSpace($evidencePreview)) {
+            $evidencePreview = 'Use the files already surfaced by the read-only tools as the review set.'
+        }
+        $riskGuidance = Get-ClawCleanupEvidenceGuidance -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+        $reviewRanking = Get-ClawCleanupReviewRanking -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+        $candidateStates = Get-ClawCleanupCandidateStates -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+        return @"
+What I found: $trimmedContent
+What looks worth reviewing: $reviewRanking Evidence: $evidencePreview
+Candidate states: $candidateStates
+What is ambiguous or risky: $riskGuidance
+Next safe action: Preview the specific candidate files and confirm before deleting anything.
+"@.Trim()
+    }
+
+    if ($IsInvestigationGoal -and -not $hasStructuredInvestigationSections) {
+        $evidence = Get-ClawLatestToolEvidence -Messages $Messages
+        if (-not $evidence) {
+            return $Content
+        }
+        $evidencePreview = Get-ClawStructuredEvidencePreview -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+        if ([string]::IsNullOrWhiteSpace($evidencePreview)) {
+            $evidencePreview = 'Use the source material already gathered.'
+        }
+        return @"
+Answer: $trimmedContent
+Evidence: $evidencePreview
+Implication: Explain what this means for the current setup or question, and only add a next step if the source material actually calls for one.
+"@.Trim()
+    }
+
+    return $Content
 }
 
 function Show-ClawPlanPreview {
@@ -405,22 +979,20 @@ function Get-ClawWorkflowPromptHints {
         }
         $hints.Add('WORKFLOW HINT: Do not keep issuing broad file-discovery searches with different scopes or sorts. After one broad search, either answer from what you found or use one narrower context tool.')
         $hints.Add('WORKFLOW HINT: Speed matters here too. A normal cleanup answer should usually finish in 1 to 2 tool calls.')
-        $hints.Add('WORKFLOW HINT: Cleanup answers should not stop at raw listings. Include a short recommendation section such as what looks safe to review, what is ambiguous, and whether the user should preview or confirm anything.')
-        $hints.Add('WORKFLOW HINT: Cleanup final answers should usually follow this order: what I found, what looks worth reviewing, what is ambiguous or risky, then the next safe action.')
+        $hints.Add('WORKFLOW HINT: Cleanup answers should not stop at raw listings. Include a short recommendation section such as what looks safe to review, what is ambiguous, whether the surfaced items are review-only or execution-allowed, and whether the user should preview or confirm anything.')
+        $hints.Add('WORKFLOW HINT: Cleanup final answers should usually follow this order: what I found, what looks worth reviewing, candidate states, what is ambiguous or risky, then the next safe action.')
         $hints.Add('WORKFLOW HINT: Do not recommend deletion just because a file is large. Distinguish large-but-likely-intentional files from obvious disposable installers, duplicates, or stale downloads when the evidence supports that distinction.')
         $hints.Add('WORKFLOW HINT: If the evidence is thin, say "worth reviewing" rather than "safe to delete."')
+        $hints.Add('WORKFLOW HINT: When possible, explicitly separate likely-intentional files from disposable or stale candidates so the user can see the reasoning, not just the sizes.')
     }
 
-    if (
-        $normalizedGoal -match '\bread\b' -or
-        $normalizedGoal -match '\bconfig\b' -or
-        $normalizedGoal -match '\blog\b' -or
-        $normalizedGoal -match '\bmanifest\b' -or
-        $normalizedGoal -match '\breadme\b' -or
-        $normalizedGoal -match 'https?://'
-    ) {
+    if (Test-ClawInvestigationGoal -UserGoal $UserGoal) {
         $hints.Add('WORKFLOW HINT: For read, config, log, and webpage investigation prompts, start with a plain-English summary before details.')
         $hints.Add('WORKFLOW HINT: After the summary, pull out the specific settings, warnings, or takeaways that matter. If the content suggests an action, end with the implication or next step.')
+        $hints.Add('WORKFLOW HINT: A normal investigation should usually finish in 1 to 2 tool calls. Do not keep opening adjacent files or pages unless the first result leaves a specific ambiguity you need to resolve.')
+        $hints.Add('WORKFLOW HINT: Investigation answers should not read like a transcript of file contents or webpage text. Lead with the answer, then cite the settings, warnings, or excerpts that support it.')
+        $hints.Add('WORKFLOW HINT: If you already have enough evidence from one source, answer directly instead of exploring sideways for extra context.')
+        $hints.Add('WORKFLOW HINT: Investigation final answers should usually follow this order: answer, evidence, implication, and next step only when one is actually warranted by the source.')
     }
 
     return ($hints -join "`n")
@@ -480,12 +1052,15 @@ $workflowHints
     $messages = @(@{ role = "user"; content = $UserGoal })
     $seenToolCalls = @{}
     $userExplicitlyRequestedWrite = Test-ClawExplicitWriteIntent -UserGoal $UserGoal
+    $userExplicitlyRequestedPermanentDelete = Test-ClawExplicitPermanentDeleteIntent -UserGoal $UserGoal
     $isHealthCheckGoal = Test-ClawHealthCheckGoal -UserGoal $UserGoal
     $isCleanupGoal = Test-ClawCleanupGoal -UserGoal $UserGoal
+    $isInvestigationGoal = (Test-ClawInvestigationGoal -UserGoal $UserGoal) -and -not $isHealthCheckGoal -and -not $isCleanupGoal
     $planSteps = [System.Collections.Generic.List[object]]::new()
     $planSummary = $null
     $maxPlanPreviewSteps = [Math]::Min($MaxSteps, 3)
     $maxHealthCheckToolCalls = 3
+    $maxInvestigationToolCalls = 2
     $executedReadOnlyToolCount = 0
 
     for ($step = 1; $step -le $MaxSteps; $step++) {
@@ -553,8 +1128,14 @@ $workflowHints
 
         # ── Final answer ──
         if ($response.Type -eq "final_answer") {
+            $finalAnswer = Format-ClawFinalAnswer `
+                -Content ([string]$response.Content) `
+                -Messages $messages `
+                -IsCleanupGoal $isCleanupGoal `
+                -IsInvestigationGoal $isInvestigationGoal
+
             if ($Plan) {
-                $planSummary = $response.Content
+                $planSummary = $finalAnswer
                 Show-ClawPlanPreview -PlanSteps @($planSteps) -PlanSummary $planSummary
                 Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                     Event       = 'plan_preview'
@@ -571,9 +1152,9 @@ $workflowHints
                 Event   = 'final_answer'
                 Step    = $step
                 Outcome = 'final_answer'
-                Preview = if ($response.Content) { "$($response.Content)".Substring(0, [Math]::Min(200, "$($response.Content)".Length)) } else { '' }
+                Preview = if ($finalAnswer) { "$finalAnswer".Substring(0, [Math]::Min(200, "$finalAnswer".Length)) } else { '' }
             }
-            return $response.Content
+            return $finalAnswer
         }
 
         # ── Tool call ──
@@ -700,6 +1281,28 @@ $workflowHints
                 continue
             }
 
+            if (
+                -not $Plan -and
+                $isInvestigationGoal -and
+                $tool.Risk -eq 'ReadOnly' -and
+                $executedReadOnlyToolCount -ge $maxInvestigationToolCalls
+            ) {
+                $toolResult = "Investigation latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this investigation. Answer now from the source material already gathered unless the user explicitly asks for a broader comparison."
+                Write-Host "[Latency] Investigation tool budget reached; asking model to answer from current evidence." -ForegroundColor Yellow
+                Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                    Event      = 'tool_skipped'
+                    Step       = $step
+                    Outcome    = 'blocked'
+                    Tool       = $toolName
+                    ToolUseId  = $response.ToolUseId
+                    Reason     = 'investigation_latency_budget_reached'
+                    UserGoal   = $UserGoal
+                    ToolCount  = $executedReadOnlyToolCount
+                }
+                $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
+                continue
+            }
+
             if ($Plan) {
                 $planSteps.Add([PSCustomObject]@{
                     Tool = $toolName
@@ -758,6 +1361,52 @@ $workflowHints
                         Tool       = $toolName
                         ToolUseId  = $response.ToolUseId
                         Reason     = 'write_targets_not_previously_enumerated'
+                        Risk       = $tool.Risk
+                        Args       = $toolInput
+                        UserGoal   = $UserGoal
+                    }
+                    $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
+                    continue
+                }
+
+                if (
+                    $toolName -eq 'Remove-Files' -and
+                    $toolInput -and
+                    $toolInput.ContainsKey('Permanent') -and
+                    [bool]$toolInput.Permanent -and
+                    -not $userExplicitlyRequestedPermanentDelete
+                ) {
+                    $toolResult = "Blocked by write policy: permanent deletion requires explicit permanent intent from the user. Ask the user to say plainly that they want a permanent delete or a recycle-bin delete."
+                    Write-Host "[Blocked] $toolName permanent delete requires explicit permanent intent." -ForegroundColor Yellow
+                    Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                        Event      = 'tool_skipped'
+                        Step       = $step
+                        Outcome    = 'blocked'
+                        Tool       = $toolName
+                        ToolUseId  = $response.ToolUseId
+                        Reason     = 'permanent_delete_intent_not_explicit'
+                        Risk       = $tool.Risk
+                        Args       = $toolInput
+                        UserGoal   = $UserGoal
+                    }
+                    $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $toolResult
+                    continue
+                }
+
+                if (
+                    $toolName -eq 'Remove-Files' -and
+                    (Test-ClawDeleteTargetsNeedSpecificReference -ToolInput $toolInput) -and
+                    -not (Test-ClawGoalReferencesDeleteTargetsSpecifically -UserGoal $UserGoal -ToolInput $toolInput)
+                ) {
+                    $toolResult = "Blocked by write policy: this delete request targets file types that need a more specific user instruction. Ask the user to name the exact file, path, or file type they want removed instead of relying on a vague reference like 'that file'."
+                    Write-Host "[Blocked] $toolName sensitive target requires a more specific user reference." -ForegroundColor Yellow
+                    Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
+                        Event      = 'tool_skipped'
+                        Step       = $step
+                        Outcome    = 'blocked'
+                        Tool       = $toolName
+                        ToolUseId  = $response.ToolUseId
+                        Reason     = 'delete_target_reference_not_specific_enough'
                         Risk       = $tool.Risk
                         Args       = $toolInput
                         UserGoal   = $UserGoal

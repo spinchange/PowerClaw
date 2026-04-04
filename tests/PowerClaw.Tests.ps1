@@ -550,6 +550,81 @@ bar 234 21.5 128.0
         $result.Content | Should -Match 'foo 123 99.4 512.0'
     }
 
+    It 'stub mode shapes file investigation answers as answer evidence implication' {
+        $result = Send-ClawRequest `
+            -Messages @(
+                @{ role = 'user'; content = 'Read config.json and explain my settings' }
+                @{
+                    role = 'assistant'
+                    content = @(@{
+                        type  = 'tool_use'
+                        id    = 'toolu_stub_file'
+                        name  = 'Read-FileContent'
+                        input = @{ Path = 'config.json' }
+                    })
+                }
+                @{
+                    role = 'user'
+                    content = @(@{
+                        type        = 'tool_result'
+                        tool_use_id = 'toolu_stub_file'
+                        content     = @'
+Path       : config.json
+LinesShown : 4
+Truncated  : False
+Content    : provider=openai
+             model=gpt-4.1-mini
+             api_key_env=OPENAI_API_KEY
+'@
+                    })
+                }
+            ) `
+            -ToolSchemas @(@{ name = 'Read-FileContent' }) `
+            -UseStub
+
+        $result.Type | Should -Be 'final_answer'
+        $result.Content | Should -Match 'Answer: this file contains the main settings'
+        $result.Content | Should -Match 'Evidence: PowerClaw would pull out the specific settings'
+        $result.Content | Should -Match 'Implication: explain what these values mean'
+    }
+
+    It 'stub mode shapes webpage investigation answers as answer evidence implication' {
+        $result = Send-ClawRequest `
+            -Messages @(
+                @{ role = 'user'; content = 'Summarize https://example.com' }
+                @{
+                    role = 'assistant'
+                    content = @(@{
+                        type  = 'tool_use'
+                        id    = 'toolu_stub_web'
+                        name  = 'Fetch-WebPage'
+                        input = @{ Url = 'https://example.com' }
+                    })
+                }
+                @{
+                    role = 'user'
+                    content = @(@{
+                        type        = 'tool_result'
+                        tool_use_id = 'toolu_stub_web'
+                        content     = @'
+Url        : https://example.com
+Title      : Demo Page Summary
+Characters : 1240
+Truncated  : False
+Content    : Top stories focus on browser automation and Windows tooling.
+'@
+                    })
+                }
+            ) `
+            -ToolSchemas @(@{ name = 'Fetch-WebPage' }) `
+            -UseStub
+
+        $result.Type | Should -Be 'final_answer'
+        $result.Content | Should -Match 'Answer: PowerClaw would summarize the page contents'
+        $result.Content | Should -Match 'Evidence: call out the important topics'
+        $result.Content | Should -Match 'Implication: mention why those takeaways matter'
+    }
+
     It 'stub mode previews a multi-step health-check plan chain' {
         $messages = @(
             @{ role = 'user'; content = 'Give me a full system health check' }
@@ -1438,6 +1513,7 @@ Describe 'Loop behavior' {
         $script:CapturedSystemPrompt | Should -Match 'usually finish in 1 to 2 tool calls'
         $script:CapturedSystemPrompt | Should -Match 'Do not recommend deletion just because a file is large'
         $script:CapturedSystemPrompt | Should -Match 'worth reviewing'
+        $script:CapturedSystemPrompt | Should -Match 'separate likely-intentional files from disposable or stale candidates'
     }
 
     It 'treats delete-identification phrasing as a cleanup goal' {
@@ -1482,6 +1558,16 @@ Describe 'Loop behavior' {
         $script:CapturedSystemPrompt | Should -Match 'start with a plain-English summary'
         $script:CapturedSystemPrompt | Should -Match 'specific settings, warnings, or takeaways'
         $script:CapturedSystemPrompt | Should -Match 'Implication or next step'
+        $script:CapturedSystemPrompt | Should -Match 'usually finish in 1 to 2 tool calls'
+        $script:CapturedSystemPrompt | Should -Match 'should not read like a transcript'
+        $script:CapturedSystemPrompt | Should -Match 'answer directly instead of exploring sideways'
+        $script:CapturedSystemPrompt | Should -Match 'answer, evidence, implication'
+    }
+
+    It 'treats webpage and config phrasing as an investigation goal' {
+        Test-ClawInvestigationGoal -UserGoal 'Read config.json and explain my settings' | Should -BeTrue
+        Test-ClawInvestigationGoal -UserGoal 'Summarize https://learn.microsoft.com/powershell/' | Should -BeTrue
+        Test-ClawInvestigationGoal -UserGoal 'Inspect the README and tell me the main warnings' | Should -BeTrue
     }
 
     It 'blocks repeated identical tool calls and tells the model to use the earlier result' {
@@ -2106,6 +2192,341 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Do not keep searching with new scopes or sorts'
     }
 
+    It 'caps default investigation execution at two read-only tools and forces synthesis' {
+        $script:CallCount = 0
+        $script:CapturedMessages = @()
+        $script:ExecutedTools = [System.Collections.Generic.List[string]]::new()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Read-FileContent'
+                        ToolInput = @{ Path = 'C:\dev\repos\PowerClaw\config.example.json' }
+                        ToolUseId = 'toolu_investigation_1'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Read-FileContent'
+                        ToolInput = @{ Path = 'C:\dev\repos\PowerClaw\README.md' }
+                        ToolUseId = 'toolu_investigation_2'
+                    }
+                }
+                3 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Read-FileContent'
+                        ToolInput = @{ Path = 'C:\dev\repos\PowerClaw\docs\roadmap.md' }
+                        ToolUseId = 'toolu_investigation_3'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'investigation summary from current evidence'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Read config.example.json and explain the important settings' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Read-FileContent'
+                    Description = 'Reads files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:ExecutedTools.Add('Read-FileContent') | Out-Null
+                        'ok'
+                    }
+                }
+            ) `
+            -MaxSteps 4
+
+        $result | Should -Be 'investigation summary from current evidence'
+        @($script:ExecutedTools) | Should -Be @('Read-FileContent', 'Read-FileContent')
+        $script:CapturedMessages[3][6].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'Investigation latency budget reached'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'Answer now from the source material already gathered'
+    }
+
+    It 'normalizes thin cleanup final answers into review-oriented sections' {
+        $script:CallCount = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_cleanup_shape_1'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'driver-pack.exe is probably the main cleanup target from the current results.'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Find the biggest files in Downloads and tell me what I should clean up' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+driver-pack.exe C:\Users\chris\Downloads\driver-pack.exe 812.1 2026-02-11
+'@
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Match '^What I found: driver-pack\.exe is probably the main cleanup target'
+        $result | Should -Match 'What looks worth reviewing:'
+        $result | Should -Match 'driver-pack\.exe'
+        $result | Should -Match 'What is ambiguous or risky:'
+        $result | Should -Match 'Next safe action:'
+    }
+
+    It 'tailors cleanup ambiguity guidance to surfaced file categories' {
+        $script:CallCount = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_cleanup_shape_2'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'These look like the main cleanup candidates from Downloads.'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Find the biggest files in Downloads and tell me what I should clean up' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+driver-pack.exe C:\Users\chris\Downloads\driver-pack.exe 812.1 2026-02-11
+windows-iso-backup.zip C:\Users\chris\Downloads\windows-iso-backup.zip 5820.4 2026-03-28
+obs-recording.mp4 C:\Users\chris\Downloads\obs-recording.mp4 2144.8 2026-04-02
+debug.log C:\Users\chris\Downloads\debug.log 40.2 2026-04-03
+'@
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Match 'setup packages can be disposable'
+        $result | Should -Match 'Archives may be backups'
+        $result | Should -Match 'media files are often intentional recordings'
+        $result | Should -Match 'Logs, temp files, dumps, or backup-style remnants are usually stronger cleanup candidates'
+    }
+
+    It 'ranks cleanup review recommendations by likely disposability' {
+        $script:CallCount = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_cleanup_shape_3'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'These are the main files worth reviewing.'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Find the biggest files in Downloads and tell me what I should clean up' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+debug.log C:\Users\chris\Downloads\debug.log 40.2 2026-04-03
+driver-pack.exe C:\Users\chris\Downloads\driver-pack.exe 812.1 2026-02-11
+windows-iso-backup.zip C:\Users\chris\Downloads\windows-iso-backup.zip 5820.4 2026-03-28
+obs-recording.mp4 C:\Users\chris\Downloads\obs-recording.mp4 2144.8 2026-04-02
+'@
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Match 'Review order: logs, temp files, and dump-style remnants, then one-time installers or setup images, then archives and bundled backups, then large media files\.'
+    }
+
+    It 'adds explicit cleanup candidate states for review-only versus execution-allowed items' {
+        $script:CallCount = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_cleanup_shape_4'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'These are the current cleanup candidates.'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Find the biggest files in Downloads and tell me what I should clean up' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+debug.log C:\Users\chris\Downloads\debug.log 40.2 2026-04-03
+driver-pack.exe C:\Users\chris\Downloads\driver-pack.exe 812.1 2026-02-11
+windows-iso-backup.zip C:\Users\chris\Downloads\windows-iso-backup.zip 5820.4 2026-03-28
+obs-recording.mp4 C:\Users\chris\Downloads\obs-recording.mp4 2144.8 2026-04-02
+'@
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Match 'Candidate states:'
+        $result | Should -Match 'execution-allowed after confirmation: logs, temp files, dumps, and backup-style remnants that were already enumerated'
+        $result | Should -Match 'review-only: installers and setup images unless the user names them specifically'
+        $result | Should -Match 'review-only: archives and backup bundles unless the user confirms they are redundant'
+        $result | Should -Match 'review-only: media files unless the user clearly identifies the exact recording or download'
+    }
+
+    It 'normalizes thin investigation final answers into answer-evidence-implication sections' {
+        $script:CallCount = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Read-FileContent'
+                        ToolInput = @{ Path = 'C:\dev\repos\PowerClaw\config.example.json' }
+                        ToolUseId = 'toolu_investigation_shape_1'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'The config is set up for OpenAI and points at gpt-4.1-mini.'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Read config.example.json and explain the important settings' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Read-FileContent'
+                    Description = 'Reads files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Path       : C:\dev\repos\PowerClaw\config.example.json
+LinesShown : 4
+Truncated  : False
+Content    : provider=openai
+             model=gpt-4.1-mini
+'@
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Match '^Answer: The config is set up for OpenAI and points at gpt-4\.1-mini\.'
+        $result | Should -Match '(?m)^Evidence: '
+        $result | Should -Match 'provider=openai'
+        $result | Should -Match '(?m)^Implication: '
+    }
+
     It 'reports user decline as a proper tool_result turn and does not invoke the write tool' {
         $script:CallCount = 0
         $script:Executed = $false
@@ -2367,6 +2788,218 @@ old.log C:\temp\old.log 12.5 2026-04-04
             -MaxSteps 3
 
         $result | Should -Be 'handled evidence-backed delete'
+        $script:Executed | Should -BeTrue
+    }
+
+    It 'blocks permanent delete unless the user explicitly asks for permanent removal' {
+        $script:CallCount = 0
+        $script:Executed = $false
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 5; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_perm_search'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\cleanup.log'); Permanent = $true }
+                        ToolUseId = 'toolu_perm_delete'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'handled permanent block'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+cleanup.log C:\temp\cleanup.log 12.5 2026-04-04
+'@
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'should not run'
+                    }
+                }
+            ) `
+            -MaxSteps 3
+
+        $result | Should -Be 'handled permanent block'
+        $script:Executed | Should -BeFalse
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'permanent deletion requires explicit permanent intent'
+    }
+
+    It 'blocks sensitive delete targets unless the user references them specifically' {
+        $script:CallCount = 0
+        $script:Executed = $false
+        $script:CapturedMessages = @()
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+            $script:CapturedMessages += ,$Messages
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 5; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_sensitive_search'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\Users\chris\Downloads\obs-recording.mp4') }
+                        ToolUseId = 'toolu_sensitive_delete'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'handled sensitive block'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+obs-recording.mp4 C:\Users\chris\Downloads\obs-recording.mp4 2144.8 2026-04-02
+'@
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'should not run'
+                    }
+                }
+            ) `
+            -MaxSteps 3
+
+        $result | Should -Be 'handled sensitive block'
+        $script:Executed | Should -BeFalse
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'need a more specific user instruction'
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'exact file, path, or file type'
+    }
+
+    It 'still allows lower-risk delete targets after prior enumeration and confirmation' {
+        $script:CallCount = 0
+        $script:Executed = $false
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Search-Files'
+                        ToolInput = @{ Scope = 'C:\temp'; Limit = 5; SortBy = 'Size'; Aggregate = $false }
+                        ToolUseId = 'toolu_lowrisk_search'
+                    }
+                }
+                2 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Remove-Files'
+                        ToolInput = @{ Paths = @('C:\temp\cleanup.log') }
+                        ToolUseId = 'toolu_lowrisk_delete'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'handled low-risk delete'
+                    }
+                }
+            }
+        }
+
+        Mock Read-Host { 'REMOVE-FILES' }
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'delete that file' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Search-Files'
+                    Description = 'Searches files'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+Name Path SizeMB DateModified
+cleanup.log C:\temp\cleanup.log 12.5 2026-04-04
+'@
+                    }
+                }
+                [PSCustomObject]@{
+                    Name = 'Remove-Files'
+                    Description = 'Deletes files'
+                    Risk = 'Write'
+                    Parameters = @()
+                    ScriptBlock = {
+                        $script:Executed = $true
+                        'deleted'
+                    }
+                }
+            ) `
+            -MaxSteps 3
+
+        $result | Should -Be 'handled low-risk delete'
         $script:Executed | Should -BeTrue
     }
 

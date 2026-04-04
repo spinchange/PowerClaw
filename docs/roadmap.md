@@ -106,6 +106,13 @@ Adding or enabling tools should be straightforward without weakening safety.
 - Cleanup prompts now have stronger routing and discovery-budget protection so
   vague “what can I delete” requests are less likely to wander into repeated
   broad searches.
+- Read, config, log, and webpage investigation prompts now have an explicit
+  synthesis lane with a small default read-only budget so answers stay concise
+  and evidence-backed instead of drifting into transcript-style exploration.
+- Cleanup answers and delete policy now go further: surfaced candidates get
+  explicit review-only versus execution-allowed states, cleanup recommendations
+  are ranked more explicitly, and `Remove-Files` blocks permanent or higher-risk
+  deletes unless the user is more specific.
 
 ## Longer-term bets
 

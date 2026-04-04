@@ -333,7 +333,8 @@ Next checks: investigate only if one of those signals looks abnormal for the cur
 [Stub] Demo answer from ${toolName}:
 What I found: several large files worth review in Downloads.
 What looks worth reviewing: the biggest items first, based on size and recency.
-What is ambiguous: large installers or media may still be intentional.
+What likely looks intentional: large installers, backups, or media may still be there on purpose.
+What is ambiguous: size alone is not enough to call something safe to delete.
 Next safe action: preview the specific files and confirm before deletion.
 Preview: $preview
 "@
@@ -341,27 +342,28 @@ Preview: $preview
                 'Read-FileContent' {
                     return @"
 [Stub] Demo answer from ${toolName}:
-Summary: this file contains the main settings or content relevant to the request.
-Key details: PowerClaw would pull out the specific settings, warnings, or notable lines that matter.
-Implication: explain what these values mean for the current setup or workflow.
+Answer: this file contains the main settings or content relevant to the request.
+Evidence: PowerClaw would pull out the specific settings, warnings, or notable lines that matter.
+Implication: explain what these values mean for the current setup or workflow, then call out the next action only if the file suggests one.
 Preview: $preview
 "@
                 }
                 'Fetch-WebPage' {
                     return @"
 [Stub] Demo answer from ${toolName}:
-Summary: PowerClaw would summarize the page contents directly from fetched page text.
-Key takeaways: call out the important topics, releases, or claims on the page.
-Implication: mention why those takeaways matter for the user's question.
+Answer: PowerClaw would summarize the page contents directly from fetched page text.
+Evidence: call out the important topics, releases, or claims on the page.
+Implication: mention why those takeaways matter for the user's question instead of repeating the page section-by-section.
 Preview: $preview
 "@
                 }
                 'Get-DirectoryListing' {
                     return @"
 [Stub] Demo answer from ${toolName}:
-Summary: PowerClaw would turn the directory listing into a readable summary.
-Key details: call out the entries that stand out by size, recency, or type.
-Next step: inspect the most relevant files before taking action.
+What I found: PowerClaw would turn the directory listing into a readable summary instead of a raw dump.
+What looks worth reviewing: call out the entries that stand out by size, recency, or type.
+What is ambiguous or likely intentional: separate obvious review targets from files that may belong to the current workflow.
+Next safe action: inspect the most relevant files before taking action.
 Preview: $preview
 "@
                 }

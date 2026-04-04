@@ -23,9 +23,9 @@ If you want a general-purpose cross-platform agent shell, this repo is intention
 1. **Machine triage**
    Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings. PowerClaw now prefers a deterministic bounded system triage first, then follows up with narrower tools only when needed.
 2. **File and storage cleanup**
-   Find large files, inspect Downloads, locate old installers, and confirm before delete actions. Cleanup answers should include what was found and what to review next, and should usually finish in a fast 1 to 2 tool pass unless the first result is ambiguous.
+   Find large files, inspect Downloads, locate old installers, and confirm before delete actions. Cleanup answers now call out what was found, what to review next, and which surfaced items are review-only versus execution-allowed after confirmation, and should usually finish in a fast 1 to 2 tool pass unless the first result is ambiguous.
 3. **Read and investigate**
-   Summarize a webpage, inspect a local config or log, and connect what you read to system state.
+   Summarize a webpage, inspect a local config or log, and connect what you read to system state. These prompts now default to a short evidence-backed summary instead of wandering through long multi-file or multi-page chains.
 
 ## Requirements
 
