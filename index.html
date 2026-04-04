@@ -815,6 +815,16 @@ powerclaw <span class="string">"What's eating my CPU?"</span></pre>
     <div class="step">
       <div class="step-num">4</div>
       <div class="step-content">
+        <h3>Optional: install a real shell command</h3>
+        <pre>pwsh -File .\Install-PowerClaw.ps1 `
+  -ModuleRoot C:\dev\powershell-modules `
+  -BinRoot C:\dev\bin</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
         <h3>Optional: Playwright (for Fetch-WebPage)</h3>
         <pre><span class="comment"># One-time browser install</span>
 $dir = <span class="string">"$env:USERPROFILE\.powerclaw-playwright\PwHost"</span>

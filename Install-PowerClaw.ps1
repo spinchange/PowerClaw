@@ -1,5 +1,7 @@
 param(
     [string]$ModuleRoot = "C:\dev\powershell-modules",
+    [string]$BinRoot = "C:\dev\bin",
+    [switch]$SkipLauncher,
     [switch]$Force
 )
 
@@ -36,6 +38,7 @@ New-Item -ItemType Directory -Path $destination -Force | Out-Null
 $copyItems = @(
     "PowerClaw.psd1",
     "PowerClaw.psm1",
+    "powerclaw.ps1",
     "client",
     "core",
     "registry",
@@ -53,4 +56,20 @@ foreach ($item in $copyItems) {
     Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
 }
 
+if (-not $SkipLauncher) {
+    New-Item -ItemType Directory -Path $BinRoot -Force | Out-Null
+
+    $launcherSource = Join-Path $repoRoot "powerclaw.ps1"
+    $launcherDestination = Join-Path $BinRoot "powerclaw.ps1"
+
+    if ((Test-Path -LiteralPath $launcherDestination) -and -not $Force) {
+        throw "Launcher already exists: $launcherDestination. Re-run with -Force to replace it, or use -SkipLauncher."
+    }
+
+    Copy-Item -LiteralPath $launcherSource -Destination $launcherDestination -Force
+}
+
 Write-Host "Installed $moduleName $moduleVersion to $destination"
+if (-not $SkipLauncher) {
+    Write-Host "Installed launcher to $(Join-Path $BinRoot 'powerclaw.ps1')"
+}

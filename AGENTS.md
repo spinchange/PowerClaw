@@ -14,6 +14,8 @@ defined in `tools/` and allowed by `tools-manifest.json`.
   Module manifest.
 - `PowerCLAW.psm1`
   Module entrypoint and dot-sourcing order.
+- `powerclaw.ps1`
+  Lightweight launcher for shell-first usage.
 - `core/`
   User-facing command and multi-step execution loop.
 - `client/`
@@ -39,6 +41,12 @@ Run a stubbed end-to-end invocation:
 
 ```powershell
 pwsh -NoProfile -Command "Import-Module .\PowerCLAW.psd1 -Force; powerclaw -UseStub 'What are the top 5 processes by memory?'"
+```
+
+Run the launcher directly from the repo root:
+
+```powershell
+pwsh -NoProfile -File .\powerclaw.ps1 -UseStub "anything"
 ```
 
 ## Test policy

@@ -47,17 +47,21 @@ powerclaw "What are the top 5 processes by memory?"
 ## Optional: Persistent local install
 
 If you keep source repos under `C:\dev\repos`, install the module into a separate
-PowerShell module root instead of importing from the repo directly:
+PowerShell module root and install the `powerclaw.ps1` launcher into a bin directory:
 
 ```powershell
-pwsh -File .\Install-PowerClaw.ps1 -ModuleRoot C:\dev\powershell-modules
+pwsh -File .\Install-PowerClaw.ps1 -ModuleRoot C:\dev\powershell-modules -BinRoot C:\dev\bin
 ```
 
-Then add `C:\dev\powershell-modules` to `PSModulePath` in your PowerShell profile
-and import normally:
+Then make sure:
+
+- `C:\dev\powershell-modules` is on `PSModulePath`
+- `C:\dev\bin` is on `PATH`
+
+After that, `powerclaw` works as a real shell command in a new PowerShell session:
 
 ```powershell
-Import-Module PowerClaw
+powerclaw "What's eating my CPU?"
 ```
 
 ---

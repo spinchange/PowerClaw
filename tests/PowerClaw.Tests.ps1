@@ -23,6 +23,13 @@ Describe 'PowerClaw module' {
         $alias.CommandType | Should -Be 'Alias'
         $alias.Definition | Should -Be 'Invoke-PowerClaw'
     }
+
+    It 'ships a launcher script that works from the repo root' {
+        $launcherPath = Join-Path $script:RepoRoot 'powerclaw.ps1'
+        $output = pwsh -NoProfile -File $launcherPath -UseStub 'anything' | Out-String
+
+        $output | Should -Match '\[Stub\]'
+    }
 }
 
 Describe 'Tool behavior' {
