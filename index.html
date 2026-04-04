@@ -120,6 +120,28 @@
     border: 1px solid var(--ps-border);
   }
 
+  .hero-points {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem;
+    max-width: 760px;
+    margin: 0 auto 2.5rem;
+    text-align: left;
+  }
+
+  .hero-points li {
+    background: rgba(10,22,40,0.8);
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    padding: 0.85rem 1rem;
+    color: var(--ps-gray);
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  .hero-points strong { color: var(--ps-white); }
+
   /* ── Terminal ── */
   .terminal-wrap {
     max-width: 800px;
@@ -263,6 +285,33 @@
     line-height: 1.6;
   }
 
+  .story-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .story-card {
+    background: #0a1628;
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    padding: 1.5rem;
+  }
+
+  .story-card h3 {
+    font-size: 0.95rem;
+    color: var(--ps-yellow);
+    margin-bottom: 0.6rem;
+  }
+
+  .story-card p {
+    font-size: 0.82rem;
+    color: var(--ps-gray);
+    line-height: 1.6;
+  }
+
+  .story-card p strong { color: var(--ps-white); }
+
   /* ── Tools ── */
   .tools-grid {
     display: grid;
@@ -309,6 +358,19 @@
     color: var(--ps-dim);
     margin-top: 0.25rem;
   }
+
+  .tools-note {
+    margin-top: 1.5rem;
+    padding: 1rem 1.25rem;
+    background: #0a1628;
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    color: var(--ps-gray);
+    font-size: 0.8rem;
+    line-height: 1.6;
+  }
+
+  .tools-note strong { color: var(--ps-white); }
 
   /* ── Install ── */
   .install-steps { display: flex; flex-direction: column; gap: 1.5rem; }
@@ -391,6 +453,31 @@
     color: var(--ps-white);
   }
 
+  .trust-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1rem;
+  }
+
+  .trust-card {
+    background: #0a1628;
+    border: 1px solid var(--ps-border);
+    border-radius: 4px;
+    padding: 1.25rem;
+  }
+
+  .trust-card h3 {
+    font-size: 0.85rem;
+    color: var(--ps-cyan);
+    margin-bottom: 0.5rem;
+  }
+
+  .trust-card p {
+    font-size: 0.8rem;
+    color: var(--ps-gray);
+    line-height: 1.6;
+  }
+
   /* ── Footer ── */
   footer {
     border-top: 1px solid var(--ps-border);
@@ -427,12 +514,17 @@
 
 <!-- Hero -->
 <div class="hero">
-  <div class="hero-badge">PowerShell · Claude API · Windows-Native</div>
+  <div class="hero-badge">PowerShell · Windows-Native · Tool Registry Safety</div>
   <h1><span class="ps">Power</span><span class="claw">Claw</span></h1>
   <p class="hero-sub">
     A Windows-native agentic workbench built on PowerShell 7.<br>
-    <strong>Describe what you want. Claude picks the tool. PowerShell runs it.</strong>
+    <strong>Describe what you want. The model picks the tool. PowerShell runs it.</strong>
   </p>
+  <ul class="hero-points">
+    <li><strong>Safe by design.</strong> PowerClaw does not generate arbitrary shell commands.</li>
+    <li><strong>Actually useful on Windows.</strong> Services, event logs, file search, storage, and local ops are first-class.</li>
+    <li><strong>Inspectable.</strong> Preview actions, confirm writes, and review what happened after every run.</li>
+  </ul>
   <div class="btn-group">
     <a class="btn btn-primary" href="#install">Get Started</a>
     <a class="btn btn-secondary" href="https://github.com/spinchange/PowerClaw">View on GitHub</a>
@@ -457,7 +549,7 @@
       <div><span class="t-cyan">PowerClaw v0.3</span></div>
       <div><span class="t-dim">Prompt: Give me a full system health check</span></div>
       <br>
-      <div><span class="t-dim">[PowerClaw] Registered 13 tools: Fetch-WebPage, Get-EventLogEntries, Get-NetworkStatus...</span></div>
+      <div><span class="t-dim">[PowerClaw] Registered 12 tools: Fetch-WebPage, Get-EventLogEntries, Get-NetworkStatus...</span></div>
       <br>
       <div><span class="t-dim">[Step 1/8]</span></div>
       <div><span class="t-cyan">[Executing]</span> Get-NetworkStatus</div>
@@ -481,17 +573,41 @@
 
 <hr class="divider" style="margin-top:5rem">
 
+<!-- Why -->
+<section>
+  <div class="section-label"># Why</div>
+  <h2>Not another shell wrapper</h2>
+  <p class="section-sub">PowerClaw is built around trust and Windows usefulness, not around letting a model improvise commands on your machine.</p>
+
+  <div class="story-grid">
+    <div class="story-card">
+      <h3>Constrained execution</h3>
+      <p><strong>The model chooses tools, not raw PowerShell.</strong> The system only executes actions you already defined and approved through the tool registry.</p>
+    </div>
+    <div class="story-card">
+      <h3>Windows-native leverage</h3>
+      <p><strong>This is meant to feel better on Windows than generic agents do.</strong> Event logs, services, Windows Search, local diagnostics, and filesystem workflows are core product value.</p>
+    </div>
+    <div class="story-card">
+      <h3>Human remains in control</h3>
+      <p><strong>PowerClaw is optimized for inspectable automation.</strong> Preview with <code>-Plan</code>, block writes with <code>-DryRun</code>, require confirmation for destructive tools, and inspect the results.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
 <!-- Principles -->
 <section>
   <div class="section-label"># Design</div>
   <h2>How it works</h2>
-  <p class="section-sub">Six principles that make PowerClaw different from asking Claude to write PowerShell directly.</p>
+  <p class="section-sub">Six principles that make PowerClaw different from asking a model to generate raw shell commands directly.</p>
 
   <div class="principles">
     <div class="principle">
       <div class="principle-icon">🗂️</div>
       <h3>Tool registry, not command generation</h3>
-      <p>Claude picks from a known, approved list of tools. It never writes raw PowerShell. The blast radius of any action is defined at design time, not at query time.</p>
+      <p>The model picks from a known, approved list of tools. It never writes raw PowerShell. The blast radius of any action is defined at design time, not at query time.</p>
     </div>
     <div class="principle">
       <div class="principle-icon">🔒</div>
@@ -519,6 +635,10 @@
       <p>Add a <code>.ps1</code> file to <code>tools/</code> with <code>.CLAW_*</code> metadata and add it to the manifest. No core changes needed.</p>
     </div>
   </div>
+
+  <div class="tools-note">
+    <strong>Core vs optional:</strong> the default registered set is the portable product surface. Personal tools can live in the repo without becoming part of the default onboarding path.
+  </div>
 </section>
 
 <hr class="divider">
@@ -526,8 +646,8 @@
 <!-- Tools -->
 <section id="tools">
   <div class="section-label"># Tools</div>
-  <h2>13 built-in tools</h2>
-  <p class="section-sub">Covering system health, file system, networking, event logs, web, and personal knowledge.</p>
+  <h2>12 default tools + optional personal integrations</h2>
+  <p class="section-sub">The default portable toolset covers system health, files, networking, logs, and web. Personal knowledge tools exist, but are optional and disabled by default.</p>
 
   <div class="tools-grid">
 
@@ -607,7 +727,7 @@
       <div class="tool-risk risk-read">ReadOnly</div>
       <div class="tool-info">
         <h3>Read-FileContent</h3>
-        <p>Read any file and let Claude reason about it — logs, configs, scripts, journals.</p>
+        <p>Read any file and let the model reason about it — logs, configs, scripts, journals.</p>
         <div class="tool-cat">Filesystem</div>
       </div>
     </div>
@@ -657,7 +777,7 @@
 <section id="install">
   <div class="section-label"># Setup</div>
   <h2>Get started</h2>
-  <p class="section-sub">Requires PowerShell 7+ and an Anthropic API key.</p>
+  <p class="section-sub">Requires PowerShell 7+ and an Anthropic or OpenAI API key.</p>
 
   <div class="install-steps">
 
@@ -678,7 +798,8 @@ cd PowerClaw</pre>
         <pre><span class="comment"># Set for this session</span>
 $env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
 
-<span class="comment"># Or add to your PowerShell profile to persist</span></pre>
+<span class="comment"># Or use OpenAI by setting config.json to provider=openai</span>
+<span class="comment"># and pointing api_key_env at your OpenAI key env var</span></pre>
       </div>
     </div>
 
@@ -711,11 +832,39 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
 
 <hr class="divider">
 
+<!-- Trust -->
+<section>
+  <div class="section-label"># Trust</div>
+  <h2>What keeps it safe</h2>
+  <p class="section-sub">PowerClaw is trying to be useful without asking you to trust a model with unconstrained shell access.</p>
+
+  <div class="trust-grid">
+    <div class="trust-card">
+      <h3>Approved tools only</h3>
+      <p>Only tools in <code>tools-manifest.json</code> can register. Discovery from disk is not enough to make a tool executable.</p>
+    </div>
+    <div class="trust-card">
+      <h3>Write confirmation</h3>
+      <p>Write-risk tools pause and show arguments before execution. You explicitly allow or decline the operation.</p>
+    </div>
+    <div class="trust-card">
+      <h3>Preview mode</h3>
+      <p><code>-Plan</code> shows the first action PowerClaw would take. It is a fast way to inspect intent before running anything.</p>
+    </div>
+    <div class="trust-card">
+      <h3>Stub mode and logs</h3>
+      <p><code>-UseStub</code> lets you test the flow without API keys, and each run remains inspectable for debugging and review.</p>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
 <!-- Prompts -->
 <section id="prompts">
   <div class="section-label"># Examples</div>
   <h2>What to ask</h2>
-  <p class="section-sub">Plain English. Claude figures out which tool — and what arguments — to use.</p>
+  <p class="section-sub">Plain English. PowerClaw figures out which approved tool — and what arguments — to use.</p>
 
   <div class="prompts-grid">
 
@@ -793,7 +942,7 @@ pwsh bin/Debug/net10.0/playwright.ps1 install chromium</pre>
   <p>
     <a href="https://github.com/spinchange/PowerClaw">spinchange/PowerClaw</a>
     &nbsp;·&nbsp;
-    Built with PowerShell 7 + Claude API
+    Built with PowerShell 7 + provider-configurable LLM backends
     &nbsp;·&nbsp;
     <a href="https://github.com/spinchange/PowerClaw/blob/master/README.md">Docs</a>
   </p>
