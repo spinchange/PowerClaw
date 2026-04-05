@@ -152,15 +152,22 @@ function Send-ClawRequest {
                  $normalizedPrompt -match '\blargest\b' -or
                  $normalizedPrompt -match '\bdownload' -or
                  $normalizedPrompt -match '\bcleanup\b' -or
-                 $normalizedPrompt -match '\bclean up\b') -and
-                (Test-StubToolAvailable -ToolName 'Search-Files' -ToolSchemas $ToolSchemas)
+                 $normalizedPrompt -match '\bclean up\b')
             ) {
-                $steps.Add((New-StubToolCall -ToolName 'Search-Files' -ToolInput @{
-                    Scope     = "$env:USERPROFILE\Downloads"
-                    Limit     = 10
-                    SortBy    = 'Size'
-                    Aggregate = $false
-                })) | Out-Null
+                if (Test-StubToolAvailable -ToolName 'Get-CleanupSummary' -ToolSchemas $ToolSchemas) {
+                    $steps.Add((New-StubToolCall -ToolName 'Get-CleanupSummary' -ToolInput @{
+                        Scope = "$env:USERPROFILE\Downloads"
+                        Limit = 10
+                        MinSizeMB = 50
+                    })) | Out-Null
+                } elseif (Test-StubToolAvailable -ToolName 'Search-Files' -ToolSchemas $ToolSchemas) {
+                    $steps.Add((New-StubToolCall -ToolName 'Search-Files' -ToolInput @{
+                        Scope     = "$env:USERPROFILE\Downloads"
+                        Limit     = 10
+                        SortBy    = 'Size'
+                        Aggregate = $false
+                    })) | Out-Null
+                }
 
                 if (Test-StubToolAvailable -ToolName 'Get-DirectoryListing' -ToolSchemas $ToolSchemas) {
                     $steps.Add((New-StubToolCall -ToolName 'Get-DirectoryListing' -ToolInput @{
@@ -171,7 +178,7 @@ function Send-ClawRequest {
 
                 return [PSCustomObject]@{
                     Steps       = @($steps)
-                    PlanSummary = 'Find the biggest candidate files first, then inspect the directory context before recommending what to review or clean up.'
+                    PlanSummary = 'Start with a deterministic cleanup summary, then inspect directory context only if the ranked candidates still look ambiguous.'
                 }
             }
 
@@ -305,6 +312,16 @@ function Send-ClawRequest {
             $preview = if ($previewLines.Count -gt 0) { $previewLines -join '; ' } else { 'No output was returned.' }
 
             switch ($toolName) {
+                'Get-CleanupSummary' {
+                    return @"
+[Stub] Demo answer from ${toolName}:
+What I found: the cleanup summary already ranks the most relevant cleanup candidates for the bounded scope.
+What looks worth reviewing: start with the highest-ranked execution-allowed remnants, then move to review-only categories.
+Candidate states: separate review-only files from execution-allowed-after-confirmation remnants before any delete action.
+Next safe action: preview the named candidates and confirm only the items the user explicitly wants removed.
+Preview: $preview
+"@
+                }
                 'Get-SystemTriage' {
                     return @"
 [Stub] Demo answer from ${toolName}:

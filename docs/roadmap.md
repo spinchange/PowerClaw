@@ -113,6 +113,9 @@ Adding or enabling tools should be straightforward without weakening safety.
   explicit review-only versus execution-allowed states, cleanup recommendations
   are ranked more explicitly, and `Remove-Files` blocks permanent or higher-risk
   deletes unless the user is more specific.
+- Deterministic `cleanup_summary` production is now implemented locally,
+  exposed through `Invoke-CleanupSummary` and `Get-CleanupSummary`, and used as
+  the preferred first signal for flagship cleanup workflows.
 
 ## Longer-term bets
 

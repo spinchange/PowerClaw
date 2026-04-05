@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/cleanup-summary-v1.schema.json",
+  "title": "Cleanup Summary V1",
+  "$comment": "This schema validates local structure only. Cross-field invariants such as candidate-id uniqueness, recommended-order resolution, and summary count consistency remain producer-side validation requirements.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "scope",
+    "captured_at",
+    "summary",
+    "candidates",
+    "recommended_order",
+    "next_action",
+    "sources"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "kind": {
+      "const": "cleanup_summary"
+    },
+    "scope": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 260
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "headline",
+        "candidate_count",
+        "execution_allowed_count"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "empty",
+            "review_only",
+            "actionable"
+          ]
+        },
+        "headline": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "candidate_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "execution_allowed_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    },
+    "recommended_order": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120
+      }
+    },
+    "next_action": {
+      "$ref": "#/$defs/next_action"
+    },
+    "sources": {
+      "type": "array",
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/source"
+      }
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "path",
+        "category",
+        "state",
+        "rank",
+        "size_mb",
+        "rationale",
+        "evidence",
+        "source_refs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 320
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "logs",
+            "installer",
+            "archive",
+            "media",
+            "other"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "review_only",
+            "execution_allowed"
+          ]
+        },
+        "rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "size_mb": {
+          "type": "number",
+          "minimum": 0
+        },
+        "modified_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 180
+          }
+        },
+        "source_refs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          }
+        }
+      }
+    },
+    "next_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "expand_scope",
+            "review_candidates",
+            "confirm_delete",
+            "none"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 180
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "tool",
+        "captured_at",
+        "scope"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "captured_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 260
+        }
+      }
+    }
+  }
+}

@@ -1,6 +1,7 @@
 {
   "approved_tools": [
     "Fetch-WebPage",
+    "Get-CleanupSummary",
     "Get-TopProcesses",
     "Get-SystemTriage",
     "Get-DirectoryListing",

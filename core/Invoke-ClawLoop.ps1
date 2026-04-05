@@ -834,6 +834,19 @@ function Get-ClawStubToolResult {
     )
 
     switch ($ToolName) {
+        'Get-CleanupSummary' {
+            return @'
+schema_version : 1.0
+kind           : cleanup_summary
+scope          : C:\Users\chris\Downloads
+captured_at    : 2026-04-04T18:05:00-05:00
+summary        : @{status=actionable; headline=Cleanup candidates were found in Downloads, and some low-risk remnants are execution-allowed after confirmation; candidate_count=3; execution_allowed_count=1}
+candidates     : {@{id=candidate:debug_log; state=execution_allowed; category=logs; rank=1}, @{id=candidate:driver-pack_exe; state=review_only; category=installer; rank=2}, @{id=candidate:obs-recording_mp4; state=review_only; category=media; rank=3}}
+recommended_order : {candidate:debug_log, candidate:driver-pack_exe, candidate:obs-recording_mp4}
+next_action    : @{kind=confirm_delete; reason=Review the ranked candidates, then confirm only the low-risk remnants the user actually wants removed.}
+sources        : {@{id=src_search; tool=Search-Files}}
+'@
+        }
         'Get-SystemTriage' {
             return @'
 schema_version : 1.0
@@ -971,7 +984,9 @@ function Get-ClawWorkflowPromptHints {
             ) | Where-Object { $_ -in $availableToolNames }
 
         $hints.Add('WORKFLOW HINT: For cleanup and biggest-file prompts, it is acceptable to chain discovery plus context. Find the likely cleanup targets first, then summarize what they are, how large they are, and what you would review before deletion.')
-        if ('Search-Files' -in $availableToolNames) {
+        if ('Get-CleanupSummary' -in $availableToolNames) {
+            $hints.Add('WORKFLOW HINT: For a normal cleanup prompt, start with Get-CleanupSummary. It already ranks cleanup candidates, separates review-only items from execution-allowed remnants, and gives the next safe action.')
+        } elseif ('Search-Files' -in $availableToolNames) {
             $hints.Add('WORKFLOW HINT: For a normal cleanup prompt, start with Search-Files or another broad discovery tool so the first answer arrives quickly.')
         }
         if ($cleanupContextTools.Count -gt 0) {

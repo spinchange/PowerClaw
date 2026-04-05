@@ -5,6 +5,7 @@ $moduleRoot = $PSScriptRoot
 # Core
 . "$moduleRoot\core\Invoke-PowerClaw.ps1"
 . "$moduleRoot\core\Invoke-ClawLoop.ps1"
+. "$moduleRoot\core\Invoke-CleanupSummary.ps1"
 . "$moduleRoot\core\Invoke-SystemTriage.ps1"
 . "$moduleRoot\core\Test-PowerClawSetup.ps1"
 
@@ -23,4 +24,4 @@ $moduleRoot = $PSScriptRoot
 
 Set-Alias -Name powerclaw -Value Invoke-PowerClaw
 
-Export-ModuleMember -Function 'Invoke-PowerClaw', 'Invoke-SystemTriage', 'Test-PowerClawSetup' -Alias 'powerclaw'
+Export-ModuleMember -Function 'Invoke-PowerClaw', 'Invoke-CleanupSummary', 'Invoke-SystemTriage', 'Test-PowerClawSetup' -Alias 'powerclaw'

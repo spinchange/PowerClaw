@@ -7,6 +7,7 @@ BeforeAll {
     . (Join-Path $script:RepoRoot 'registry\Register-ClawTools.ps1')
     . (Join-Path $script:RepoRoot 'registry\ConvertTo-ToolSchema.ps1')
     . (Join-Path $script:RepoRoot 'core\Invoke-ClawLoop.ps1')
+    . (Join-Path $script:RepoRoot 'core\Invoke-CleanupSummary.ps1')
     . (Join-Path $script:RepoRoot 'core\Invoke-SystemTriage.ps1')
     . (Join-Path $script:RepoRoot 'client\Send-ClawRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-OpenAiRequest.ps1')
@@ -17,6 +18,7 @@ BeforeAll {
     . (Join-Path $script:RepoRoot 'tools\Get-EventLogEntries.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-StorageStatus.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-TopProcesses.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Search-Files.ps1')
     . (Join-Path $script:RepoRoot 'tools\Remove-Files.ps1')
 }
 
@@ -45,6 +47,10 @@ Describe 'PowerClaw module' {
 
     It 'exports Invoke-SystemTriage' {
         (Get-Command Invoke-SystemTriage -ErrorAction Stop).Name | Should -Be 'Invoke-SystemTriage'
+    }
+
+    It 'exports Invoke-CleanupSummary' {
+        (Get-Command Invoke-CleanupSummary -ErrorAction Stop).Name | Should -Be 'Invoke-CleanupSummary'
     }
 
     It 'ships a web runtime installer script that bootstraps Playwright' {
@@ -347,6 +353,7 @@ function Get-Beta {
 
         'Fetch-WebPage' -in @($manifest.approved_tools) | Should -BeTrue
         'Fetch-WebPage' -in @($manifest.disabled_tools) | Should -BeFalse
+        'Get-CleanupSummary' -in @($manifest.approved_tools) | Should -BeTrue
     }
 
     It 'keeps personal tools outside the main portable tool directory' {
@@ -473,17 +480,18 @@ Describe 'Overlay install helper' {
 }
 
 Describe 'Providers' {
-    It 'stub mode picks Search-Files for biggest-files cleanup prompts' {
+    It 'stub mode picks Get-CleanupSummary for biggest-files cleanup prompts when available' {
         $result = Send-ClawRequest `
             -Messages @(@{ role = 'user'; content = 'Find the 10 biggest files in Downloads' }) `
             -ToolSchemas @(
+                @{ name = 'Get-CleanupSummary' },
                 @{ name = 'Search-Files' },
                 @{ name = 'Get-TopProcesses' }
             ) `
             -UseStub
 
         $result.Type | Should -Be 'tool_call'
-        $result.ToolName | Should -Be 'Search-Files'
+        $result.ToolName | Should -Be 'Get-CleanupSummary'
         $result.ToolInput.Scope | Should -Match 'Downloads'
         $result.ToolInput.Limit | Should -Be 10
     }
@@ -669,8 +677,8 @@ Content    : Top stories focus on browser automation and Windows tooling.
                 content = @(@{
                     type  = 'tool_use'
                     id    = 'toolu_plan_1'
-                    name  = 'Search-Files'
-                    input = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; SortBy = 'Size'; Aggregate = $false }
+                    name  = 'Get-CleanupSummary'
+                    input = @{ Scope = 'C:\Users\chris\Downloads'; Limit = 10; MinSizeMB = 50 }
                 })
             }
             @{
@@ -678,7 +686,7 @@ Content    : Top stories focus on browser automation and Windows tooling.
                 content = @(@{
                     type        = 'tool_result'
                     tool_use_id = 'toolu_plan_1'
-                    content     = 'Plan preview only: Search-Files was not executed.'
+                    content     = 'Plan preview only: Get-CleanupSummary was not executed.'
                 })
             }
             @{
@@ -703,13 +711,13 @@ Content    : Top stories focus on browser automation and Windows tooling.
         $result = Send-ClawRequest `
             -Messages $messages `
             -ToolSchemas @(
-                @{ name = 'Search-Files' },
+                @{ name = 'Get-CleanupSummary' },
                 @{ name = 'Get-DirectoryListing' }
             ) `
             -UseStub
 
         $result.Type | Should -Be 'final_answer'
-        $result.Content | Should -Match 'Find the biggest candidate files first'
+        $result.Content | Should -Match 'deterministic cleanup summary'
     }
 
     It 'translates OpenAI requests and parses tool-call responses' {
@@ -1327,6 +1335,148 @@ Describe 'System triage producer' {
     }
 }
 
+Describe 'Cleanup summary producer' {
+    It 'runs the bounded cleanup collector and returns a cleanup summary document' {
+        Mock Search-Files {
+            @(
+                [PSCustomObject]@{
+                    Name = 'debug.log'
+                    Path = 'C:\Users\chris\Downloads\debug.log'
+                    SizeMB = 40.2
+                    DateModified = [datetimeoffset]'2026-04-03T10:15:00-05:00'
+                }
+                [PSCustomObject]@{
+                    Name = 'driver-pack.exe'
+                    Path = 'C:\Users\chris\Downloads\driver-pack.exe'
+                    SizeMB = 812.1
+                    DateModified = [datetimeoffset]'2026-02-11T09:00:00-05:00'
+                }
+            )
+        }
+
+        $doc = Invoke-CleanupSummary -Scope 'C:\Users\chris\Downloads' -Limit 10 -MinSizeMB 25
+
+        $doc.kind | Should -Be 'cleanup_summary'
+        $doc.summary.status | Should -Be 'actionable'
+        $doc.summary.execution_allowed_count | Should -Be 1
+        $doc.candidates[0].category | Should -Be 'logs'
+        $doc.candidates[0].state | Should -Be 'execution_allowed'
+        $doc.recommended_order[0] | Should -Be $doc.candidates[0].id
+        $doc.sources[0].tool | Should -Be 'Search-Files'
+    }
+
+    It 'can emit JSON directly from the cleanup collector wrapper' {
+        Mock Search-Files {
+            @([PSCustomObject]@{
+                Name = 'debug.log'
+                Path = 'C:\Users\chris\Downloads\debug.log'
+                SizeMB = 40.2
+                DateModified = [datetimeoffset]'2026-04-03T10:15:00-05:00'
+            })
+        }
+
+        $json = Invoke-CleanupSummary -AsJson
+        $parsed = $json | ConvertFrom-Json
+
+        $parsed.kind | Should -Be 'cleanup_summary'
+        $parsed.summary.status | Should -Be 'actionable'
+    }
+
+    It 'normalizes cleanup search results into the v1 producer input shape' {
+        $normalized = ConvertTo-CleanupSummaryNormalizedInput `
+            -SearchResults @(
+                [PSCustomObject]@{
+                    Name = 'debug.log'
+                    Path = 'C:\Users\chris\Downloads\debug.log'
+                    SizeMB = 40.2
+                    DateModified = [datetimeoffset]'2026-04-03T10:15:00-05:00'
+                }
+            ) `
+            -Scope 'C:\Users\chris\Downloads' `
+            -CapturedAt ([datetimeoffset]'2026-04-04T18:05:00-05:00')
+
+        $normalized.scope | Should -Be 'C:\Users\chris\Downloads'
+        $normalized.candidates[0].name | Should -Be 'debug.log'
+        $normalized.candidates[0].size_mb | Should -Be 40.2
+        $normalized.candidates[0].modified_at | Should -Be '2026-04-03T10:15:00.0000000-05:00'
+    }
+
+    It 'emits a review-only summary when only higher-risk cleanup candidates exist' {
+        $doc = New-CleanupSummaryDocument -NormalizedInput ([PSCustomObject]@{
+            scope = 'C:\Users\chris\Downloads'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            candidates = @(
+                [PSCustomObject]@{
+                    name = 'obs-recording.mp4'
+                    path = 'C:\Users\chris\Downloads\obs-recording.mp4'
+                    size_mb = 2144.8
+                    modified_at = '2026-04-02T12:00:00-05:00'
+                },
+                [PSCustomObject]@{
+                    name = 'windows-iso-backup.zip'
+                    path = 'C:\Users\chris\Downloads\windows-iso-backup.zip'
+                    size_mb = 5820.4
+                    modified_at = '2026-03-28T09:30:00-05:00'
+                }
+            )
+        })
+
+        $doc.summary.status | Should -Be 'review_only'
+        $doc.summary.execution_allowed_count | Should -Be 0
+        @($doc.candidates | ForEach-Object state) | Should -Be @('review_only', 'review_only')
+        $doc.next_action.kind | Should -Be 'review_candidates'
+        (Test-CleanupSummaryDocument -Document $doc).IsValid | Should -BeTrue
+    }
+
+    It 'rejects producer-invalid cleanup documents that break cross-field invariants' {
+        $invalid = [PSCustomObject]@{
+            schema_version = '1.0'
+            kind = 'cleanup_summary'
+            scope = 'C:\Users\chris\Downloads'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            summary = [PSCustomObject]@{
+                status = 'actionable'
+                headline = 'bad'
+                candidate_count = 2
+                execution_allowed_count = 1
+            }
+            candidates = @(
+                [PSCustomObject]@{
+                    id = 'candidate:debug_log'
+                    name = 'debug.log'
+                    path = 'C:\Users\chris\Downloads\debug.log'
+                    category = 'logs'
+                    state = 'execution_allowed'
+                    rank = 1
+                    size_mb = 40.2
+                    modified_at = '2026-04-03T10:15:00-05:00'
+                    rationale = 'ok'
+                    evidence = @('Path: C:\Users\chris\Downloads\debug.log')
+                    source_refs = @('src_search')
+                }
+            )
+            recommended_order = @('candidate:missing')
+            next_action = [PSCustomObject]@{
+                kind = 'confirm_delete'
+                reason = 'ok'
+            }
+            sources = @(
+                [PSCustomObject]@{
+                    id = 'src_search'
+                    tool = 'Search-Files'
+                    captured_at = '2026-04-04T18:05:00-05:00'
+                    scope = 'C:\Users\chris\Downloads'
+                }
+            )
+        }
+
+        $validation = Test-CleanupSummaryDocument -Document $invalid
+        $validation.IsValid | Should -BeFalse
+        @($validation.Errors) -join ' ' | Should -Match 'Recommended order id does not resolve'
+        @($validation.Errors) -join ' ' | Should -Match 'Summary candidate_count mismatch'
+    }
+}
+
 Describe 'Loop behavior' {
     It 'feeds back unavailable-tool errors as proper tool_result turns and continues' {
         $script:CallCount = 0
@@ -1489,6 +1639,13 @@ Describe 'Loop behavior' {
             -UserGoal 'Find the biggest files in Downloads and tell me what I should clean up' `
             -Tools @(
                 [PSCustomObject]@{
+                    Name = 'Get-CleanupSummary'
+                    Description = 'Gets deterministic cleanup summary'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                },
+                [PSCustomObject]@{
                     Name = 'Search-Files'
                     Description = 'Searches files'
                     Risk = 'ReadOnly'
@@ -1507,13 +1664,14 @@ Describe 'Loop behavior' {
 
         $script:CapturedSystemPrompt | Should -Match 'Find the likely cleanup targets first'
         $script:CapturedSystemPrompt | Should -Match 'should not stop at raw listings'
-        $script:CapturedSystemPrompt | Should -Match 'start with Search-Files or another broad discovery tool'
+        $script:CapturedSystemPrompt | Should -Match 'start with Get-CleanupSummary'
         $script:CapturedSystemPrompt | Should -Match 'Add context tools such as Get-DirectoryListing only when the first discovery result leaves real ambiguity'
         $script:CapturedSystemPrompt | Should -Match 'Do not keep issuing broad file-discovery searches with different scopes or sorts'
         $script:CapturedSystemPrompt | Should -Match 'usually finish in 1 to 2 tool calls'
         $script:CapturedSystemPrompt | Should -Match 'Do not recommend deletion just because a file is large'
         $script:CapturedSystemPrompt | Should -Match 'worth reviewing'
         $script:CapturedSystemPrompt | Should -Match 'separate likely-intentional files from disposable or stale candidates'
+        $script:CapturedSystemPrompt | Should -Match 'review-only or execution-allowed'
     }
 
     It 'treats delete-identification phrasing as a cleanup goal' {
