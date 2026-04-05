@@ -102,30 +102,38 @@ Why:
 - keeps default verification fast and deterministic
 - makes provider changes safer to refactor
 
-### Minimal structured log contract is a supported surface
+### Structured loop logs are a versioned JSON surface
 
-PowerClaw supports a small stable subset of the loop log schema for inspection
-and lightweight tooling.
+PowerClaw supports a versioned `loop_log` v1 JSON line format for loop
+inspection and lightweight tooling.
 
-Supported fields on every log entry:
+Core fields on every log entry:
 - `SchemaVersion`
+- `Kind`
 - `Timestamp`
 - `Event`
 - `Outcome`
 - `Step`
 
-Additionally supported when present for tool-related entries:
+Additionally supported when applicable:
 - `Tool`
 - `ToolUseId`
 - `Reason`
+- `PolicyReason`
+- `ControlReason`
 
-Other fields such as previews, argument payloads, result lengths, and timing are
-useful but not yet part of the supported contract.
+The full v1 contract lives in `docs/loop-log-v1.md` and
+`docs/loop-log-v1.schema.json`.
+
+`Reason`, `PolicyReason`, and `ControlReason` are intentionally separate:
+- `Reason` explains the local event
+- `PolicyReason` carries normalized write-boundary policy
+- `ControlReason` carries normalized loop-control and budget reasons
 
 Why:
-- makes inspectability real without freezing the whole log payload too early
-- gives downstream tooling a small stable target
-- preserves freedom to refine non-core fields while execution behavior evolves
+- makes inspectability real with a concrete versioned contract
+- gives downstream tooling a schema-valid target instead of relying on convention
+- reduces ambiguity around event meanings and event/outcome combinations
 
 ### Health-check workflows prefer deterministic system triage first
 

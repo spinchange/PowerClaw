@@ -407,12 +407,92 @@ function Test-SystemTriageDocument {
 
     $findingIds = @($Document.findings | ForEach-Object { [string]$_.id })
     $sourceIds = @($Document.sources | ForEach-Object { [string]$_.id })
+    $severityRank = @{ critical = 3; warning = 2; info = 1 }
+    $actionabilityRank = @{ low_disk = 6; unstable_service = 5; high_memory = 4; high_cpu = 3; repeated_system_errors = 2; abnormal_uptime_signal = 1 }
+    $allowedSourceScopes = @{
+        'src_system' = @{ tool = 'Get-SystemSummary'; scope = 'local_host' }
+        'src_processes' = @{ tool = 'Get-TopProcesses'; scope = 'top_processes' }
+        'src_services' = @{ tool = 'Get-ServiceStatus'; scope = 'important_services' }
+        'src_events' = @{ tool = 'Get-EventLogEntries'; scope = 'last_60_minutes' }
+        'src_storage' = @{ tool = 'Get-StorageStatus'; scope = 'fixed_volumes' }
+    }
+
     $dupFindingIds = @($findingIds | Group-Object | Where-Object Count -gt 1 | Select-Object -ExpandProperty Name)
     if ($dupFindingIds.Count -gt 0) { $errors.Add("Duplicate finding ids: $($dupFindingIds -join ', ')") | Out-Null }
     $dupPriorities = @(@($Document.actions | ForEach-Object { [int]$_.priority }) | Group-Object | Where-Object Count -gt 1 | Select-Object -ExpandProperty Name)
     if ($dupPriorities.Count -gt 0) { $errors.Add("Duplicate action priorities: $($dupPriorities -join ', ')") | Out-Null }
     foreach ($finding in @($Document.findings)) { foreach ($sourceRef in @($finding.source_refs)) { if ($sourceRef -notin $sourceIds) { $errors.Add("Finding source ref does not resolve: $sourceRef") | Out-Null } } }
     foreach ($action in @($Document.actions)) { foreach ($findingId in @($action.related_finding_ids)) { if ($findingId -notin $findingIds) { $errors.Add("Action related finding id does not resolve: $findingId") | Out-Null } } }
+
+    $expectedFindingIdsInOrder = @(
+        @($Document.findings) |
+            Sort-Object @{ Expression = { -$severityRank[[string]$_.severity] } }, @{ Expression = { -[double]$_.confidence } }, @{ Expression = { -$actionabilityRank[[string]$_.type] } }, @{ Expression = { [string]$_.id } } |
+            ForEach-Object { [string]$_.id }
+    )
+    if ((@($Document.findings | ForEach-Object { [string]$_.id }) -join '|') -ne ($expectedFindingIdsInOrder -join '|')) {
+        $errors.Add('Findings are not sorted in deterministic v1 order') | Out-Null
+    }
+
+    $expectedActionIdsInOrder = @(
+        @($Document.actions) |
+            Sort-Object @{ Expression = { [int]$_.priority } }, @{ Expression = { [string]$_.id } } |
+            ForEach-Object { [string]$_.id }
+    )
+    if ((@($Document.actions | ForEach-Object { [string]$_.id }) -join '|') -ne ($expectedActionIdsInOrder -join '|')) {
+        $errors.Add('Actions are not sorted by ascending priority') | Out-Null
+    }
+
+    $expectedPriorities = if (@($Document.actions).Count -gt 0) { @(1..@($Document.actions).Count) } else { @() }
+    $actualPriorities = @($Document.actions | ForEach-Object { [int]$_.priority })
+    if (($actualPriorities -join '|') -ne ($expectedPriorities -join '|')) {
+        $errors.Add('Action priorities must be contiguous starting at 1') | Out-Null
+    }
+
+    foreach ($source in @($Document.sources)) {
+        $sourceId = [string]$source.id
+        if ($allowedSourceScopes.ContainsKey($sourceId)) {
+            $expected = $allowedSourceScopes[$sourceId]
+            if ([string]$source.tool -ne [string]$expected.tool) {
+                $errors.Add("Source tool mismatch for $sourceId") | Out-Null
+            }
+            if ([string]$source.scope -ne [string]$expected.scope) {
+                $errors.Add("Source scope mismatch for $sourceId") | Out-Null
+            }
+        }
+    }
+
+    foreach ($finding in @($Document.findings)) {
+        $findingType = [string]$finding.type
+        $findingId = [string]$finding.id
+        $findingCategory = [string]$finding.category
+
+        switch ($findingType) {
+            'high_cpu' {
+                if ($findingCategory -ne 'cpu') { $errors.Add("high_cpu category mismatch: $findingId") | Out-Null }
+                if ($findingId -ne 'high_cpu:global') { $errors.Add("high_cpu id mismatch: $findingId") | Out-Null }
+            }
+            'high_memory' {
+                if ($findingCategory -ne 'memory') { $errors.Add("high_memory category mismatch: $findingId") | Out-Null }
+                if ($findingId -ne 'high_memory:global') { $errors.Add("high_memory id mismatch: $findingId") | Out-Null }
+            }
+            'low_disk' {
+                if ($findingCategory -ne 'disk') { $errors.Add("low_disk category mismatch: $findingId") | Out-Null }
+                if ($findingId -notmatch '^low_disk:[a-z0-9_-]+$') { $errors.Add("low_disk id format mismatch: $findingId") | Out-Null }
+            }
+            'unstable_service' {
+                if ($findingCategory -ne 'service') { $errors.Add("unstable_service category mismatch: $findingId") | Out-Null }
+                if ($findingId -notmatch '^unstable_service:[a-z0-9_-]+$') { $errors.Add("unstable_service id format mismatch: $findingId") | Out-Null }
+            }
+            'repeated_system_errors' {
+                if ($findingCategory -ne 'eventlog') { $errors.Add("repeated_system_errors category mismatch: $findingId") | Out-Null }
+                if ($findingId -notmatch '^repeated_system_errors:[a-z0-9_-]+$') { $errors.Add("repeated_system_errors id format mismatch: $findingId") | Out-Null }
+            }
+            'abnormal_uptime_signal' {
+                if ($findingCategory -ne 'uptime') { $errors.Add("abnormal_uptime_signal category mismatch: $findingId") | Out-Null }
+                if ($findingId -ne 'abnormal_uptime_signal:global') { $errors.Add("abnormal_uptime_signal id mismatch: $findingId") | Out-Null }
+            }
+        }
+    }
 
     $expectedStatus = 'ok'
     if (@($Document.findings | Where-Object severity -eq 'critical').Count -gt 0) { $expectedStatus = 'critical' } elseif (@($Document.findings | Where-Object severity -eq 'warning').Count -gt 0) { $expectedStatus = 'warning' } elseif (@($Document.findings | Where-Object severity -eq 'info').Count -gt 0) { $expectedStatus = 'info' }
@@ -425,6 +505,10 @@ function Test-SystemTriageDocument {
     if ([int]$Document.window_minutes -ne 60) { $errors.Add('window_minutes must equal 60') | Out-Null }
     if (@($Document.findings | Where-Object type -eq 'low_disk').Count -gt 1) { $errors.Add('More than one low_disk finding was emitted') | Out-Null }
     if (@($Document.findings | Where-Object type -eq 'repeated_system_errors').Count -gt 1) { $errors.Add('More than one repeated_system_errors finding was emitted') | Out-Null }
+    if (@($Document.findings | Where-Object type -eq 'abnormal_uptime_signal').Count -gt 1) { $errors.Add('More than one abnormal_uptime_signal finding was emitted') | Out-Null }
+    if (@($Document.findings | Where-Object type -eq 'abnormal_uptime_signal').Count -gt 0 -and @($Document.findings).Count -lt 2) {
+        $errors.Add('abnormal_uptime_signal must not appear without another finding') | Out-Null
+    }
 
     [PSCustomObject]@{ IsValid = ($errors.Count -eq 0); Errors = @($errors) }
 }

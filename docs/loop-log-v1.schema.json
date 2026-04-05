@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/schemas/loop-log-v1.schema.json",
+  "title": "PowerClaw Loop Log V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Kind",
+    "Timestamp",
+    "Event",
+    "Outcome",
+    "Step"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1"
+    },
+    "Kind": {
+      "const": "loop_log"
+    },
+    "Timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "Event": {
+      "type": "string",
+      "enum": [
+        "step_start",
+        "model_response",
+        "plan_preview",
+        "final_answer",
+        "tool_requested",
+        "tool_unavailable",
+        "tool_rejected",
+        "tool_skipped",
+        "tool_confirmed",
+        "tool_result",
+        "loop_abort"
+      ]
+    },
+    "Outcome": {
+      "type": "string",
+      "enum": [
+        "started",
+        "received",
+        "previewed",
+        "final_answer",
+        "requested",
+        "rejected",
+        "blocked",
+        "declined",
+        "dry_run",
+        "confirmed",
+        "success",
+        "error",
+        "executed_success",
+        "executed_error",
+        "aborted"
+      ]
+    },
+    "Step": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "MaxSteps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "UserGoal": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "MessageCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ResponseType": {
+      "type": "string",
+      "enum": [
+        "tool_call",
+        "final_answer"
+      ]
+    },
+    "ToolName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "Tool": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "ToolUseId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "Args": {
+      "type": "object"
+    },
+    "ToolCallIdentity": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "AvailableTools": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "Reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "PolicyReason": {
+      "type": "string",
+      "enum": [
+        "explicit_write_intent_required",
+        "prior_evidence_required",
+        "explicit_permanent_intent_required",
+        "specific_user_reference_required",
+        "confirmation_declined",
+        "execution_mode_dry_run",
+        "confirmed_write_execution"
+      ]
+    },
+    "ToolCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "StepCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "PlanSummary": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "Preview": {
+      "type": "string",
+      "maxLength": 200
+    },
+    "Risk": {
+      "type": "string",
+      "enum": [
+        "ReadOnly",
+        "Write"
+      ]
+    },
+    "ConfirmationToken": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "ConfirmationInput": {
+      "type": "string",
+      "maxLength": 512
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "error"
+      ]
+    },
+    "ResultLen": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DryRun": {
+      "type": "boolean"
+    },
+    "DurationMs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ResultPreview": {
+      "type": "string",
+      "maxLength": 200
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "step_start"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "started"
+          }
+        },
+        "required": [
+          "Outcome",
+          "MaxSteps",
+          "UserGoal",
+          "MessageCount"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "model_response"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "received"
+          }
+        },
+        "required": [
+          "Outcome",
+          "ResponseType"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "plan_preview"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "previewed"
+          }
+        },
+        "required": [
+          "Outcome",
+          "StepCount"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "final_answer"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "final_answer"
+          }
+        },
+        "required": [
+          "Outcome",
+          "Preview"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "tool_requested"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "requested"
+          }
+        },
+        "required": [
+          "Outcome",
+          "Tool",
+          "ToolUseId",
+          "Args",
+          "ToolCallIdentity"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "tool_unavailable"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "rejected"
+          }
+        },
+        "required": [
+          "Outcome",
+          "Tool",
+          "ToolUseId",
+          "AvailableTools"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "tool_rejected"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "rejected"
+          }
+        },
+        "required": [
+          "Outcome",
+          "Tool",
+          "ToolUseId",
+          "Reason"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "tool_skipped"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "required": [
+          "Outcome",
+          "Tool",
+          "ToolUseId",
+          "Reason"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "tool_confirmed"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "confirmed"
+          }
+        },
+        "required": [
+          "Outcome",
+          "Tool",
+          "ToolUseId",
+          "Risk",
+          "Args",
+          "ConfirmationToken"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "tool_result"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "required": [
+          "Outcome",
+          "Tool",
+          "ToolUseId",
+          "Args",
+          "Risk",
+          "Status",
+          "ResultLen",
+          "DryRun",
+          "DurationMs",
+          "ResultPreview"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "Event": {
+            "const": "loop_abort"
+          }
+        },
+        "required": [
+          "Event"
+        ]
+      },
+      "then": {
+        "properties": {
+          "Outcome": {
+            "const": "aborted"
+          }
+        },
+        "required": [
+          "Outcome",
+          "Reason"
+        ]
+      }
+    }
+  ]
+}

@@ -41,6 +41,11 @@ Cross-field invariants such as:
 - `related_finding_ids` resolution
 - `summary.status` consistency
 - `summary.score` consistency
+- finding sort order consistency
+- action priority order consistency
+- source `id/tool/scope` consistency
+- finding `type/category/id` consistency
+- `abnormal_uptime_signal` gating consistency
 
 remain producer-side validation requirements rather than pure schema guarantees in v1.
 
@@ -142,6 +147,7 @@ Rules:
 - `confidence` must be a number from `0.0` to `1.0`
 - `source_refs` must contain 1-3 IDs present in `sources`
 - findings must be sorted by severity descending, then confidence descending
+- for equal severity and confidence, findings must sort by actionability weight, then deterministic `id`
 - no two findings may share the same `id`
 
 ## Actions
@@ -167,6 +173,7 @@ Rules:
 - `reason` must be a string of 1-160 chars
 - `related_finding_ids` must contain 1-3 finding IDs present in `findings`
 - actions must be sorted by ascending `priority`
+- priorities must be contiguous starting at `1`
 
 V1 action constraints:
 - actions must recommend inspection, confirmation, monitoring, or escalation only
@@ -197,6 +204,7 @@ Rules:
 - `captured_at` must be an ISO 8601 timestamp with offset
 - `scope` must be a string of 1-80 chars
 - source objects must not embed raw payloads
+- source `id`, `tool`, and `scope` must match the fixed v1 collector mapping
 
 ## Important service allowlist
 

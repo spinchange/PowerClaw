@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.local/schemas/cleanup-summary-v1.schema.json",
   "title": "Cleanup Summary V1",
-  "$comment": "This schema validates local structure only. Cross-field invariants such as candidate-id uniqueness, recommended-order resolution, and summary count consistency remain producer-side validation requirements.",
+  "$comment": "This schema validates local structure only. Cross-field invariants such as candidate-id uniqueness, recommended-order resolution, summary count consistency, and category/state/state_reason consistency remain producer-side validation requirements.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -104,6 +104,7 @@
         "path",
         "category",
         "state",
+        "state_reason",
         "rank",
         "size_mb",
         "rationale",
@@ -141,6 +142,16 @@
           "enum": [
             "review_only",
             "execution_allowed"
+          ]
+        },
+        "state_reason": {
+          "type": "string",
+          "enum": [
+            "low_risk_remnant",
+            "installer_requires_review",
+            "archive_requires_review",
+            "media_requires_review",
+            "unclassified_requires_review"
           ]
         },
         "rank": {
@@ -191,6 +202,7 @@
       "additionalProperties": false,
       "required": [
         "kind",
+        "policy_reason",
         "reason"
       ],
       "properties": {
@@ -200,6 +212,15 @@
             "expand_scope",
             "review_candidates",
             "confirm_delete",
+            "none"
+          ]
+        },
+        "policy_reason": {
+          "type": "string",
+          "enum": [
+            "no_candidates_found",
+            "low_risk_candidates_available_after_confirmation",
+            "specific_user_reference_required",
             "none"
           ]
         },

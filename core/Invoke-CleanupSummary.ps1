@@ -97,6 +97,17 @@ function New-CleanupSummaryDocument {
         return 'review_only'
     }
 
+    function Get-CleanupStateReason {
+        param([string]$Category)
+        switch ($Category) {
+            'logs' { return 'low_risk_remnant' }
+            'installer' { return 'installer_requires_review' }
+            'archive' { return 'archive_requires_review' }
+            'media' { return 'media_requires_review' }
+            default { return 'unclassified_requires_review' }
+        }
+    }
+
     function Get-CleanupRationale {
         param([string]$Category)
         switch ($Category) {
@@ -145,12 +156,14 @@ function New-CleanupSummaryDocument {
             ForEach-Object {
                 $category = Get-CleanupCategory -Path ([string]$_.path)
                 $state = Get-CleanupState -Category $category
+                $stateReason = Get-CleanupStateReason -Category $category
                 [PSCustomObject]@{
                     id = "candidate:$([regex]::Replace(([string]$_.name).ToLowerInvariant(), '[^a-z0-9_-]', '_'))"
                     name = [string]$_.name
                     path = [string]$_.path
                     category = $category
                     state = $state
+                    state_reason = $stateReason
                     rank = 0
                     size_mb = [math]::Round([double]($_.size_mb ?? 0), 2)
                     modified_at = if ($_.modified_at) { [string]$_.modified_at } else { $null }
@@ -180,18 +193,21 @@ function New-CleanupSummaryDocument {
         'empty' {
             [PSCustomObject]@{
                 kind = 'expand_scope'
+                policy_reason = 'no_candidates_found'
                 reason = 'No candidates met the current threshold, so the next step is to widen scope or lower the size filter.'
             }
         }
         'actionable' {
             [PSCustomObject]@{
                 kind = 'confirm_delete'
+                policy_reason = 'low_risk_candidates_available_after_confirmation'
                 reason = 'Review the ranked candidates, then confirm only the low-risk remnants the user actually wants removed.'
             }
         }
         default {
             [PSCustomObject]@{
                 kind = 'review_candidates'
+                policy_reason = 'specific_user_reference_required'
                 reason = 'Review the ranked candidates with the user and ask them to name the specific file or type before any delete action.'
             }
         }
@@ -261,6 +277,40 @@ function Test-CleanupSummaryDocument {
     $executionAllowedCount = @($Document.candidates | Where-Object state -eq 'execution_allowed').Count
     if ([int]$Document.summary.execution_allowed_count -ne $executionAllowedCount) {
         $errors.Add('Summary execution_allowed_count mismatch') | Out-Null
+    }
+
+    $expectedStateReasons = @{
+        logs = 'low_risk_remnant'
+        installer = 'installer_requires_review'
+        archive = 'archive_requires_review'
+        media = 'media_requires_review'
+        other = 'unclassified_requires_review'
+    }
+
+    foreach ($candidate in @($Document.candidates)) {
+        $expectedReason = $expectedStateReasons[[string]$candidate.category]
+        if ([string]$candidate.state_reason -ne $expectedReason) {
+            $errors.Add("Candidate state_reason mismatch for $([string]$candidate.id)") | Out-Null
+        }
+
+        if ([string]$candidate.category -eq 'logs' -and [string]$candidate.state -ne 'execution_allowed') {
+            $errors.Add("Logs candidate must be execution_allowed: $([string]$candidate.id)") | Out-Null
+        }
+
+        if ([string]$candidate.category -ne 'logs' -and [string]$candidate.state -ne 'review_only') {
+            $errors.Add("Non-log candidate must be review_only: $([string]$candidate.id)") | Out-Null
+        }
+    }
+
+    $expectedNextActionPolicyReason = switch ([string]$Document.summary.status) {
+        'empty' { 'no_candidates_found' }
+        'actionable' { 'low_risk_candidates_available_after_confirmation' }
+        'review_only' { 'specific_user_reference_required' }
+        default { '' }
+    }
+
+    if ([string]$Document.next_action.policy_reason -ne $expectedNextActionPolicyReason) {
+        $errors.Add('Next action policy_reason mismatch') | Out-Null
     }
 
     return [PSCustomObject]@{

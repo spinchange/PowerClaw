@@ -10,11 +10,38 @@ function Write-ClawLoopLogEntry {
         return
     }
 
+    $allowedEventOutcomes = @{
+        step_start       = @('started')
+        model_response   = @('received')
+        plan_preview     = @('previewed')
+        final_answer     = @('final_answer')
+        tool_requested   = @('requested')
+        tool_unavailable = @('rejected')
+        tool_rejected    = @('rejected')
+        tool_skipped     = @('blocked', 'declined', 'dry_run')
+        tool_confirmed   = @('confirmed')
+        tool_result      = @('success', 'error', 'executed_success', 'executed_error')
+        loop_abort       = @('aborted')
+    }
+
+    if (-not $Entry.ContainsKey('Event') -or -not $Entry.ContainsKey('Outcome') -or -not $Entry.ContainsKey('Step')) {
+        return
+    }
+
+    $eventName = [string]$Entry.Event
+    $outcome = [string]$Entry.Outcome
+    if (-not $allowedEventOutcomes.ContainsKey($eventName)) {
+        return
+    }
+
+    if ($allowedEventOutcomes[$eventName] -notcontains $outcome) {
+        return
+    }
+
     $safeEntry = @{}
     foreach ($key in $Entry.Keys) {
         $value = $Entry[$key]
         if ($null -eq $value) {
-            $safeEntry[$key] = $null
             continue
         }
 
@@ -27,8 +54,37 @@ function Write-ClawLoopLogEntry {
     }
 
     $safeEntry.SchemaVersion = '1'
+    $safeEntry.Kind = 'loop_log'
     $safeEntry.Timestamp = Get-Date -Format 'o'
-    Add-Content -Path $LogPath -Value ($safeEntry | ConvertTo-Json -Depth 6 -Compress) -ErrorAction SilentlyContinue
+    $schemaPath = Join-Path $PSScriptRoot '..\docs\loop-log-v1.schema.json'
+    $json = $safeEntry | ConvertTo-Json -Depth 10 -Compress
+
+    try {
+        if (-not (Test-Json -Json $json -SchemaFile $schemaPath -ErrorAction Stop)) {
+            return
+        }
+    }
+    catch {
+        return
+    }
+
+    Add-Content -Path $LogPath -Value $json -ErrorAction SilentlyContinue
+}
+
+function Get-ClawWritePolicyReason {
+    param(
+        [string]$Reason
+    )
+
+    switch ($Reason) {
+        'write_policy_blocked' { return 'explicit_write_intent_required' }
+        'write_targets_not_previously_enumerated' { return 'prior_evidence_required' }
+        'permanent_delete_intent_not_explicit' { return 'explicit_permanent_intent_required' }
+        'delete_target_reference_not_specific_enough' { return 'specific_user_reference_required' }
+        'confirmation_declined' { return 'confirmation_declined' }
+        'dry_run' { return 'execution_mode_dry_run' }
+        default { return $null }
+    }
 }
 
 function Get-ClawToolCallFingerprint {
@@ -340,6 +396,40 @@ function Add-ClawToolResultTurn {
     return ,$Messages
 }
 
+function Format-ClawPolicyToolResultContent {
+    param(
+        [string]$PolicyReason,
+        [string]$Message
+    )
+
+    if ([string]::IsNullOrWhiteSpace($PolicyReason)) {
+        return $Message
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        return "PolicyReason: $PolicyReason"
+    }
+
+    return "PolicyReason: $PolicyReason`n$Message"
+}
+
+function Format-ClawControlToolResultContent {
+    param(
+        [string]$ControlReason,
+        [string]$Message
+    )
+
+    if ([string]::IsNullOrWhiteSpace($ControlReason)) {
+        return $Message
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Message)) {
+        return "ControlReason: $ControlReason"
+    }
+
+    return "ControlReason: $ControlReason`n$Message"
+}
+
 function Test-ClawSyntheticToolResultContent {
     param(
         [string]$Content
@@ -350,6 +440,8 @@ function Test-ClawSyntheticToolResultContent {
     }
 
     return (
+        $Content -match '^PolicyReason: ' -or
+        $Content -match '^ControlReason: ' -or
         $Content -match '^Plan preview only:' -or
         $Content -match '^Error: repeated tool call detected' -or
         $Content -match '^Error: tool .+ is not available in the approved registry' -or
@@ -1207,7 +1299,7 @@ $workflowHints
             }
 
             if ($seenToolCalls.ContainsKey($toolCallFingerprint)) {
-                $toolResult = "Error: repeated tool call detected for '$toolName' with the same arguments. Do not call the same tool again with identical input. Use the earlier result to answer, or explain why the task cannot continue."
+                $toolResult = Format-ClawControlToolResultContent -ControlReason 'repeated_identical_tool_call' -Message "Error: repeated tool call detected for '$toolName' with the same arguments. Do not call the same tool again with identical input. Use the earlier result to answer, or explain why the task cannot continue."
                 Write-Host "[Warning] Repeated tool call blocked for $toolName with identical arguments." -ForegroundColor Yellow
                 Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                     Event            = 'tool_rejected'
@@ -1231,7 +1323,7 @@ $workflowHints
                 $tool.Risk -eq 'ReadOnly' -and
                 $executedReadOnlyToolCount -ge $maxHealthCheckToolCalls
             ) {
-                $toolResult = "Health-check latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this health check. Answer now from the signals already gathered unless the user explicitly asks for deeper investigation."
+                $toolResult = Format-ClawControlToolResultContent -ControlReason 'health_check_latency_budget_reached' -Message "Health-check latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this health check. Answer now from the signals already gathered unless the user explicitly asks for deeper investigation."
                 Write-Host "[Latency] Health-check tool budget reached; asking model to answer from current signals." -ForegroundColor Yellow
                 Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                     Event      = 'tool_skipped'
@@ -1259,7 +1351,7 @@ $workflowHints
                     (Test-ClawBroadCleanupDiscoveryTool -ToolName ([string]$_.content[0].name))
                 }).Count -ge 2
             ) {
-                $toolResult = "Cleanup discovery budget reached: you already used 2 broad read-only discovery tools for this cleanup request. Do not keep searching with new scopes or sorts. Answer now from the files already surfaced, or use a narrower context tool only if the user explicitly asks for deeper inspection."
+                $toolResult = Format-ClawControlToolResultContent -ControlReason 'cleanup_discovery_budget_reached' -Message "Cleanup discovery budget reached: you already used 2 broad read-only discovery tools for this cleanup request. Do not keep searching with new scopes or sorts. Answer now from the files already surfaced, or use a narrower context tool only if the user explicitly asks for deeper inspection."
                 Write-Host "[Latency] Cleanup discovery budget reached; asking model to stop broad searching." -ForegroundColor Yellow
                 Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                     Event      = 'tool_skipped'
@@ -1280,7 +1372,7 @@ $workflowHints
                 $tool.Risk -eq 'ReadOnly' -and
                 $executedReadOnlyToolCount -ge 2
             ) {
-                $toolResult = "Cleanup latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this cleanup request. Answer now from the files and context already gathered unless the user explicitly asks for deeper inspection."
+                $toolResult = Format-ClawControlToolResultContent -ControlReason 'cleanup_latency_budget_reached' -Message "Cleanup latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this cleanup request. Answer now from the files and context already gathered unless the user explicitly asks for deeper inspection."
                 Write-Host "[Latency] Cleanup tool budget reached; asking model to answer from current signals." -ForegroundColor Yellow
                 Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                     Event      = 'tool_skipped'
@@ -1302,7 +1394,7 @@ $workflowHints
                 $tool.Risk -eq 'ReadOnly' -and
                 $executedReadOnlyToolCount -ge $maxInvestigationToolCalls
             ) {
-                $toolResult = "Investigation latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this investigation. Answer now from the source material already gathered unless the user explicitly asks for a broader comparison."
+                $toolResult = Format-ClawControlToolResultContent -ControlReason 'investigation_latency_budget_reached' -Message "Investigation latency budget reached: you already used $executedReadOnlyToolCount read-only tools for this investigation. Answer now from the source material already gathered unless the user explicitly asks for a broader comparison."
                 Write-Host "[Latency] Investigation tool budget reached; asking model to answer from current evidence." -ForegroundColor Yellow
                 Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                     Event      = 'tool_skipped'
@@ -1325,7 +1417,7 @@ $workflowHints
                     Args = $toolInput
                 }) | Out-Null
 
-                $planToolResult = "Plan preview only: $toolName was not executed. Continue by previewing the next intended step or return a concise plan summary based on the intended chain so far. Do not assume real tool output."
+                $planToolResult = Format-ClawControlToolResultContent -ControlReason 'plan_preview_only' -Message "Plan preview only: $toolName was not executed. Continue by previewing the next intended step or return a concise plan summary based on the intended chain so far. Do not assume real tool output."
                 $messages = Add-ClawToolResultTurn -Messages $messages -ToolUseId $response.ToolUseId -ToolName $toolName -ToolInput $toolInput -Content $planToolResult
 
                 if ($planSteps.Count -ge $maxPlanPreviewSteps) {
@@ -1346,7 +1438,7 @@ $workflowHints
             # Safety check
             if ($tool.Risk -ne 'ReadOnly') {
                 if (-not $userExplicitlyRequestedWrite) {
-                    $toolResult = "Blocked by write policy: the user goal did not explicitly ask for a destructive change. Ask for confirmation in plain language first, or continue with read-only investigation."
+                    $toolResult = Format-ClawPolicyToolResultContent -PolicyReason 'explicit_write_intent_required' -Message "Blocked by write policy: the user goal did not explicitly ask for a destructive change. Ask for confirmation in plain language first, or continue with read-only investigation."
                     Write-Host "[Blocked] $toolName requires an explicit user request for changes." -ForegroundColor Yellow
                     Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                         Event      = 'tool_skipped'
@@ -1355,6 +1447,7 @@ $workflowHints
                         Tool       = $toolName
                         ToolUseId  = $response.ToolUseId
                         Reason     = 'write_policy_blocked'
+                        PolicyReason = (Get-ClawWritePolicyReason -Reason 'write_policy_blocked')
                         Risk       = $tool.Risk
                         Args       = $toolInput
                         UserGoal   = $UserGoal
@@ -1367,7 +1460,7 @@ $workflowHints
                     $toolName -eq 'Remove-Files' -and
                     -not (Test-ClawDeleteTargetsWerePreviouslyEnumerated -Messages $messages -ToolInput $toolInput)
                 ) {
-                    $toolResult = "Blocked by write policy: Remove-Files may only run on exact paths that were already shown in earlier read-only results during this request. First enumerate the candidate files with a read-only tool, then ask again with those same full paths."
+                    $toolResult = Format-ClawPolicyToolResultContent -PolicyReason 'prior_evidence_required' -Message "Blocked by write policy: Remove-Files may only run on exact paths that were already shown in earlier read-only results during this request. First enumerate the candidate files with a read-only tool, then ask again with those same full paths."
                     Write-Host "[Blocked] $toolName requires evidence-backed file targets before deletion." -ForegroundColor Yellow
                     Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                         Event      = 'tool_skipped'
@@ -1376,6 +1469,7 @@ $workflowHints
                         Tool       = $toolName
                         ToolUseId  = $response.ToolUseId
                         Reason     = 'write_targets_not_previously_enumerated'
+                        PolicyReason = (Get-ClawWritePolicyReason -Reason 'write_targets_not_previously_enumerated')
                         Risk       = $tool.Risk
                         Args       = $toolInput
                         UserGoal   = $UserGoal
@@ -1391,7 +1485,7 @@ $workflowHints
                     [bool]$toolInput.Permanent -and
                     -not $userExplicitlyRequestedPermanentDelete
                 ) {
-                    $toolResult = "Blocked by write policy: permanent deletion requires explicit permanent intent from the user. Ask the user to say plainly that they want a permanent delete or a recycle-bin delete."
+                    $toolResult = Format-ClawPolicyToolResultContent -PolicyReason 'explicit_permanent_intent_required' -Message "Blocked by write policy: permanent deletion requires explicit permanent intent from the user. Ask the user to say plainly that they want a permanent delete or a recycle-bin delete."
                     Write-Host "[Blocked] $toolName permanent delete requires explicit permanent intent." -ForegroundColor Yellow
                     Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                         Event      = 'tool_skipped'
@@ -1400,6 +1494,7 @@ $workflowHints
                         Tool       = $toolName
                         ToolUseId  = $response.ToolUseId
                         Reason     = 'permanent_delete_intent_not_explicit'
+                        PolicyReason = (Get-ClawWritePolicyReason -Reason 'permanent_delete_intent_not_explicit')
                         Risk       = $tool.Risk
                         Args       = $toolInput
                         UserGoal   = $UserGoal
@@ -1413,7 +1508,7 @@ $workflowHints
                     (Test-ClawDeleteTargetsNeedSpecificReference -ToolInput $toolInput) -and
                     -not (Test-ClawGoalReferencesDeleteTargetsSpecifically -UserGoal $UserGoal -ToolInput $toolInput)
                 ) {
-                    $toolResult = "Blocked by write policy: this delete request targets file types that need a more specific user instruction. Ask the user to name the exact file, path, or file type they want removed instead of relying on a vague reference like 'that file'."
+                    $toolResult = Format-ClawPolicyToolResultContent -PolicyReason 'specific_user_reference_required' -Message "Blocked by write policy: this delete request targets file types that need a more specific user instruction. Ask the user to name the exact file, path, or file type they want removed instead of relying on a vague reference like 'that file'."
                     Write-Host "[Blocked] $toolName sensitive target requires a more specific user reference." -ForegroundColor Yellow
                     Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                         Event      = 'tool_skipped'
@@ -1422,6 +1517,7 @@ $workflowHints
                         Tool       = $toolName
                         ToolUseId  = $response.ToolUseId
                         Reason     = 'delete_target_reference_not_specific_enough'
+                        PolicyReason = (Get-ClawWritePolicyReason -Reason 'delete_target_reference_not_specific_enough')
                         Risk       = $tool.Risk
                         Args       = $toolInput
                         UserGoal   = $UserGoal
@@ -1433,7 +1529,7 @@ $workflowHints
                 if ($DryRun) {
                     Write-Host "[DryRun] Would call $toolName with:" -ForegroundColor Yellow
                     Write-Host ($toolInput | ConvertTo-Json -Depth 3)
-                    $toolResult = "(dry run — not executed)"
+                    $toolResult = Format-ClawPolicyToolResultContent -PolicyReason 'execution_mode_dry_run' -Message "(dry run — not executed)"
                     Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                         Event     = 'tool_skipped'
                         Step      = $step
@@ -1441,6 +1537,7 @@ $workflowHints
                         Tool      = $toolName
                         ToolUseId = $response.ToolUseId
                         Reason    = 'dry_run'
+                        PolicyReason = (Get-ClawWritePolicyReason -Reason 'dry_run')
                         Risk      = $tool.Risk
                         Args      = $toolInput
                     }
@@ -1452,7 +1549,7 @@ $workflowHints
                     Write-Host "  Type $confirmToken to confirm. Anything else cancels." -ForegroundColor Yellow
                     $confirm = Read-Host "  Confirmation"
                     if ($confirm -cne $confirmToken) {
-                        $toolResult = "User declined to run $toolName. Confirmation token '$confirmToken' was not provided."
+                        $toolResult = Format-ClawPolicyToolResultContent -PolicyReason 'confirmation_declined' -Message "User declined to run $toolName. Confirmation token '$confirmToken' was not provided."
                         Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
                             Event             = 'tool_skipped'
                             Step              = $step
@@ -1460,6 +1557,7 @@ $workflowHints
                             Tool              = $toolName
                             ToolUseId         = $response.ToolUseId
                             Reason            = 'confirmation_declined'
+                            PolicyReason      = (Get-ClawWritePolicyReason -Reason 'confirmation_declined')
                             Risk              = $tool.Risk
                             Args              = $toolInput
                             ConfirmationToken = $confirmToken
@@ -1514,6 +1612,10 @@ $workflowHints
                 if ($tool.Risk -eq 'ReadOnly' -and $toolStatus -eq 'success') {
                     $executedReadOnlyToolCount++
                 }
+
+                if ($tool.Risk -eq 'Write') {
+                    $toolResult = Format-ClawPolicyToolResultContent -PolicyReason 'confirmed_write_execution' -Message $toolResult
+                }
             }
 
             Write-ClawLoopLogEntry -LogPath $logPath -Entry @{
@@ -1524,6 +1626,7 @@ $workflowHints
                 ToolUseId     = $response.ToolUseId
                 Args          = $toolInput
                 Risk          = $tool.Risk
+                PolicyReason  = if ($tool.Risk -eq 'Write') { 'confirmed_write_execution' } else { $null }
                 Status        = $toolStatus
                 ResultLen     = if ($toolResult) { $toolResult.Length } else { 0 }
                 DryRun        = $DryRun.IsPresent

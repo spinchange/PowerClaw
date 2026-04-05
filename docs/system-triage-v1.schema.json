@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.local/schemas/system-triage-v1.schema.json",
   "title": "System Triage V1",
-  "$comment": "This schema validates local structure only. Cross-field invariants such as score derivation, status consistency, ref resolution, and uniqueness-by-id remain producer-side validation requirements.",
+  "$comment": "This schema validates local structure only. Cross-field invariants such as score derivation, status consistency, ref resolution, uniqueness-by-id, deterministic ordering, source id/tool/scope mapping, and finding type/category/id consistency remain producer-side validation requirements.",
   "type": "object",
   "additionalProperties": false,
   "required": [

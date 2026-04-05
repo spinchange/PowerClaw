@@ -1333,6 +1333,121 @@ Describe 'System triage producer' {
         @($validation.Errors) -join ' ' | Should -Match 'Summary status mismatch'
         @($validation.Errors) -join ' ' | Should -Match 'Summary score mismatch'
     }
+
+    It 'rejects producer-invalid triage documents with ordering mapping and type-mapping mismatches' {
+        $invalid = [PSCustomObject]@{
+            schema_version = '1.0'
+            kind = 'system_triage'
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            window_minutes = 60
+            summary = [PSCustomObject]@{ status = 'warning'; score = 20; headline = 'bad' }
+            findings = @(
+                [PSCustomObject]@{
+                    id = 'abnormal_uptime_signal:global'
+                    type = 'abnormal_uptime_signal'
+                    severity = 'info'
+                    category = 'uptime'
+                    title = 'System uptime may explain current conditions'
+                    reason = 'The system restarted recently and some current signals may be post-boot effects'
+                    evidence = @('Current uptime: 1.2 hours')
+                    confidence = 0.90
+                    source_refs = @('src_system')
+                },
+                [PSCustomObject]@{
+                    id = 'high_cpu:not_global'
+                    type = 'high_cpu'
+                    severity = 'warning'
+                    category = 'memory'
+                    title = 'CPU usage is elevated'
+                    reason = 'Current CPU usage is above the warning threshold'
+                    evidence = @('CPU in use: 73%')
+                    confidence = 0.95
+                    source_refs = @('src_system')
+                }
+            )
+            actions = @(
+                [PSCustomObject]@{
+                    id = 'inspect_cpu_processes'
+                    priority = 2
+                    kind = 'inspect'
+                    target = 'processes'
+                    reason = 'Review the top CPU consumers to identify avoidable load'
+                    related_finding_ids = @('high_cpu:not_global')
+                },
+                [PSCustomObject]@{
+                    id = 'monitor_uptime_context'
+                    priority = 1
+                    kind = 'monitor'
+                    target = 'uptime'
+                    reason = 'Track whether current signals change as uptime normalizes'
+                    related_finding_ids = @('abnormal_uptime_signal:global')
+                }
+            )
+            sources = @(
+                [PSCustomObject]@{
+                    id = 'src_system'
+                    tool = 'Get-SystemSummary'
+                    captured_at = '2026-04-04T18:05:00-05:00'
+                    scope = 'wrong_scope'
+                }
+            )
+        }
+
+        $validation = Test-SystemTriageDocument -Document $invalid
+        $validation.IsValid | Should -BeFalse
+        @($validation.Errors) -join ' ' | Should -Match 'Findings are not sorted in deterministic v1 order'
+        @($validation.Errors) -join ' ' | Should -Match 'Action priorities must be contiguous starting at 1'
+        @($validation.Errors) -join ' ' | Should -Match 'Source scope mismatch'
+        @($validation.Errors) -join ' ' | Should -Match 'high_cpu category mismatch'
+        @($validation.Errors) -join ' ' | Should -Match 'high_cpu id mismatch'
+    }
+
+    It 'rejects abnormal_uptime_signal when it appears without another finding' {
+        $invalid = [PSCustomObject]@{
+            schema_version = '1.0'
+            kind = 'system_triage'
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            window_minutes = 60
+            summary = [PSCustomObject]@{ status = 'info'; score = 0; headline = 'bad' }
+            findings = @(
+                [PSCustomObject]@{
+                    id = 'abnormal_uptime_signal:global'
+                    type = 'abnormal_uptime_signal'
+                    severity = 'info'
+                    category = 'uptime'
+                    title = 'System uptime may explain current conditions'
+                    reason = 'The system restarted recently and some current signals may be post-boot effects'
+                    evidence = @('Current uptime: 1.2 hours')
+                    confidence = 0.90
+                    source_refs = @('src_system')
+                }
+            )
+            actions = @(
+                [PSCustomObject]@{
+                    id = 'monitor_uptime_context'
+                    priority = 1
+                    kind = 'monitor'
+                    target = 'uptime'
+                    reason = 'Track whether current signals change as uptime normalizes'
+                    related_finding_ids = @('abnormal_uptime_signal:global')
+                }
+            )
+            sources = @(
+                [PSCustomObject]@{
+                    id = 'src_system'
+                    tool = 'Get-SystemSummary'
+                    captured_at = '2026-04-04T18:05:00-05:00'
+                    scope = 'local_host'
+                }
+            )
+        }
+
+        $validation = Test-SystemTriageDocument -Document $invalid
+        $validation.IsValid | Should -BeFalse
+        @($validation.Errors) -join ' ' | Should -Match 'abnormal_uptime_signal must not appear without another finding'
+    }
 }
 
 Describe 'Cleanup summary producer' {
@@ -1361,7 +1476,9 @@ Describe 'Cleanup summary producer' {
         $doc.summary.execution_allowed_count | Should -Be 1
         $doc.candidates[0].category | Should -Be 'logs'
         $doc.candidates[0].state | Should -Be 'execution_allowed'
+        $doc.candidates[0].state_reason | Should -Be 'low_risk_remnant'
         $doc.recommended_order[0] | Should -Be $doc.candidates[0].id
+        $doc.next_action.policy_reason | Should -Be 'low_risk_candidates_available_after_confirmation'
         $doc.sources[0].tool | Should -Be 'Search-Files'
     }
 
@@ -1424,7 +1541,9 @@ Describe 'Cleanup summary producer' {
         $doc.summary.status | Should -Be 'review_only'
         $doc.summary.execution_allowed_count | Should -Be 0
         @($doc.candidates | ForEach-Object state) | Should -Be @('review_only', 'review_only')
+        @($doc.candidates | ForEach-Object state_reason) | Should -Be @('archive_requires_review', 'media_requires_review')
         $doc.next_action.kind | Should -Be 'review_candidates'
+        $doc.next_action.policy_reason | Should -Be 'specific_user_reference_required'
         (Test-CleanupSummaryDocument -Document $doc).IsValid | Should -BeTrue
     }
 
@@ -1447,6 +1566,7 @@ Describe 'Cleanup summary producer' {
                     path = 'C:\Users\chris\Downloads\debug.log'
                     category = 'logs'
                     state = 'execution_allowed'
+                    state_reason = 'media_requires_review'
                     rank = 1
                     size_mb = 40.2
                     modified_at = '2026-04-03T10:15:00-05:00'
@@ -1458,6 +1578,7 @@ Describe 'Cleanup summary producer' {
             recommended_order = @('candidate:missing')
             next_action = [PSCustomObject]@{
                 kind = 'confirm_delete'
+                policy_reason = 'specific_user_reference_required'
                 reason = 'ok'
             }
             sources = @(
@@ -1474,6 +1595,8 @@ Describe 'Cleanup summary producer' {
         $validation.IsValid | Should -BeFalse
         @($validation.Errors) -join ' ' | Should -Match 'Recommended order id does not resolve'
         @($validation.Errors) -join ' ' | Should -Match 'Summary candidate_count mismatch'
+        @($validation.Errors) -join ' ' | Should -Match 'Candidate state_reason mismatch'
+        @($validation.Errors) -join ' ' | Should -Match 'Next action policy_reason mismatch'
     }
 }
 
@@ -1773,6 +1896,7 @@ Describe 'Loop behavior' {
 
         $result | Should -Be 'handled repeat'
         $script:Executions | Should -Be 1
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'ControlReason: repeated_identical_tool_call'
         $script:CapturedMessages[2][4].content[0].content | Should -Match 'repeated tool call detected'
         $script:CapturedMessages[2][4].content[0].content | Should -Match 'Do not call the same tool again'
     }
@@ -1845,6 +1969,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
 
         $result | Should -Be 'handled dry run'
         $script:Executed | Should -BeFalse
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'PolicyReason: execution_mode_dry_run'
         $script:CapturedMessages[2][4].content[0].content | Should -Match 'dry run'
     }
 
@@ -1971,6 +2096,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         ($script:PlanLines -join "`n") | Should -Match '1\. Get-SystemTriage'
         ($script:PlanLines -join "`n") | Should -Match '2\. Get-StorageStatus'
         ($script:PlanLines -join "`n") | Should -Match 'Summary: Summarize health status'
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'ControlReason: plan_preview_only'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'Plan preview only'
     }
 
@@ -2178,6 +2304,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $result | Should -Be 'health summary from current signals'
         @($script:ExecutedTools) | Should -Be @('Get-SystemTriage', 'Get-StorageStatus', 'Get-EventLogEntries')
         $script:CapturedMessages[4][8].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[4][8].content[0].content | Should -Match 'ControlReason: health_check_latency_budget_reached'
         $script:CapturedMessages[4][8].content[0].content | Should -Match 'Health-check latency budget reached'
         $script:CapturedMessages[4][8].content[0].content | Should -Match 'Answer now from the signals already gathered'
     }
@@ -2267,6 +2394,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $result | Should -Be 'cleanup summary from current signals'
         @($script:ExecutedTools) | Should -Be @('Search-Files', 'Get-DirectoryListing')
         $script:CapturedMessages[3][6].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'ControlReason: cleanup_latency_budget_reached'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Cleanup latency budget reached'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Answer now from the files and context already gathered'
     }
@@ -2346,6 +2474,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $result | Should -Be 'cleanup summary from surfaced files'
         @($script:ExecutedTools) | Should -Be @('Search-Files', 'Get-StorageStatus')
         $script:CapturedMessages[3][6].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'ControlReason: cleanup_discovery_budget_reached'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Cleanup discovery budget reached'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Do not keep searching with new scopes or sorts'
     }
@@ -2415,6 +2544,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $result | Should -Be 'investigation summary from current evidence'
         @($script:ExecutedTools) | Should -Be @('Read-FileContent', 'Read-FileContent')
         $script:CapturedMessages[3][6].content[0].type | Should -Be 'tool_result'
+        $script:CapturedMessages[3][6].content[0].content | Should -Match 'ControlReason: investigation_latency_budget_reached'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Investigation latency budget reached'
         $script:CapturedMessages[3][6].content[0].content | Should -Match 'Answer now from the source material already gathered'
     }
@@ -2757,6 +2887,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         $script:CapturedMessages[2][3].content[0].type | Should -Be 'tool_use'
         $script:CapturedMessages[2][4].content[0].type | Should -Be 'tool_result'
         $script:CapturedMessages[2][4].content[0].tool_use_id | Should -Be 'toolu_decline'
+        $script:CapturedMessages[2][4].content[0].content | Should -Match 'PolicyReason: confirmation_declined'
         $script:CapturedMessages[2][4].content[0].content | Should -Match 'declined'
         $script:CapturedMessages[2][4].content[0].content | Should -Match 'REMOVE-FILES'
     }
@@ -2874,6 +3005,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
 
         $result | Should -Be 'handled missing evidence'
         $script:Executed | Should -BeFalse
+        $script:CapturedMessages[1][2].content[0].content | Should -Match 'PolicyReason: prior_evidence_required'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'exact paths that were already shown'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'enumerate the candidate files with a read-only tool'
     }
@@ -3261,6 +3393,7 @@ cleanup.log C:\temp\cleanup.log 12.5 2026-04-04
     It 'writes structured log entries for step start, tool execution, and final answer' {
         $script:CallCount = 0
         $script:LogEntries = @()
+        $schemaPath = Join-Path $script:RepoRoot 'docs\loop-log-v1.schema.json'
 
         Mock Send-ClawRequest {
             $script:CallCount++
@@ -3310,9 +3443,13 @@ cleanup.log C:\temp\cleanup.log 12.5 2026-04-04
         $toolResultEntry = $script:LogEntries | Where-Object { $_.Event -eq 'tool_result' } | Select-Object -First 1
         $toolResultEntry.ToolUseId | Should -Be 'toolu_log'
         $toolResultEntry.SchemaVersion | Should -Be '1'
+        $toolResultEntry.Kind | Should -Be 'loop_log'
         $toolResultEntry.Timestamp | Should -Not -BeNullOrEmpty
         $toolResultEntry.Step | Should -Be 1
         $toolResultEntry.Tool | Should -Be 'Get-TopProcesses'
+        foreach ($entry in $script:LogEntries) {
+            (($entry | ConvertTo-Json -Depth 10 -Compress) | Test-Json -SchemaFile $schemaPath) | Should -BeTrue
+        }
     }
 
     It 'logs blocked, declined, and executed write outcomes distinctly' {
@@ -3365,7 +3502,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         }
 
         $null = Invoke-ClawLoop -UserGoal 'inspect Downloads and tell me what looks safe to remove' -Tools @($removeTool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 2
-        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'blocked' -and $_.Reason -eq 'write_policy_blocked' }).Count | Should -Be 1
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'blocked' -and $_.Reason -eq 'write_policy_blocked' -and $_.PolicyReason -eq 'explicit_write_intent_required' }).Count | Should -Be 1
 
         $script:LogEntries = @()
         $script:CallCount = 0
@@ -3399,7 +3536,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
             }
         }
         $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($searchTool, $removeTool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 3
-        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'declined' -and $_.Reason -eq 'confirmation_declined' }).Count | Should -Be 1
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_skipped' -and $_.Outcome -eq 'declined' -and $_.Reason -eq 'confirmation_declined' -and $_.PolicyReason -eq 'confirmation_declined' }).Count | Should -Be 1
 
         $script:LogEntries = @()
         $script:CallCount = 0
@@ -3434,12 +3571,13 @@ old.log C:\temp\old.log 12.5 2026-04-04
         }
         $null = Invoke-ClawLoop -UserGoal 'delete that file' -Tools @($searchTool, $removeTool) -Config ([PSCustomObject]@{ max_output_chars = 500; log_file = 'powerclaw.log' }) -MaxSteps 3
         @($script:LogEntries | Where-Object { $_.Event -eq 'tool_confirmed' -and $_.Outcome -eq 'confirmed' }).Count | Should -Be 1
-        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_result' -and $_.Outcome -eq 'executed_success' }).Count | Should -Be 1
+        @($script:LogEntries | Where-Object { $_.Event -eq 'tool_result' -and $_.Outcome -eq 'executed_success' -and $_.PolicyReason -eq 'confirmed_write_execution' }).Count | Should -Be 1
     }
 
     It 'emits the supported core log fields on every structured entry' {
         $script:CallCount = 0
         $script:LogEntries = @()
+        $schemaPath = Join-Path $script:RepoRoot 'docs\loop-log-v1.schema.json'
 
         Mock Send-ClawRequest {
             $script:CallCount++
@@ -3483,10 +3621,12 @@ old.log C:\temp\old.log 12.5 2026-04-04
 
         foreach ($entry in $script:LogEntries) {
             $entry.SchemaVersion | Should -Be '1'
+            $entry.Kind | Should -Be 'loop_log'
             $entry.Timestamp | Should -Not -BeNullOrEmpty
             $entry.Event | Should -Not -BeNullOrEmpty
             $entry.Outcome | Should -Not -BeNullOrEmpty
             $entry.Step | Should -BeGreaterThan 0
+            (($entry | ConvertTo-Json -Depth 10 -Compress) | Test-Json -SchemaFile $schemaPath) | Should -BeTrue
         }
     }
 }

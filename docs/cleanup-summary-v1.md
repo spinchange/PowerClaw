@@ -30,6 +30,8 @@ Cross-field invariants such as:
 - candidate ID uniqueness
 - `recommended_order` resolution
 - summary count consistency
+- category/state/state_reason consistency
+- summary status to `next_action.policy_reason` consistency
 
 remain producer-side validation requirements rather than pure schema guarantees
 in v1.
@@ -98,6 +100,7 @@ Each candidate must contain exactly these fields:
   "path": "C:\\Users\\chris\\Downloads\\debug.log",
   "category": "logs",
   "state": "execution_allowed",
+  "state_reason": "low_risk_remnant",
   "rank": 1,
   "size_mb": 40.2,
   "modified_at": "2026-04-03T10:15:00-05:00",
@@ -115,9 +118,15 @@ Each candidate must contain exactly these fields:
 Rules:
 - `category` must be one of `logs|installer|archive|media|other`
 - `state` must be one of `review_only|execution_allowed`
+- `state_reason` must be one of `low_risk_remnant|installer_requires_review|archive_requires_review|media_requires_review|unclassified_requires_review`
 - `rank` must be an integer from `1` to `10`
 - `size_mb` must be a non-negative number
 - `evidence` must contain 1-3 strings
+
+Producer-side invariants:
+- `logs` candidates must be `execution_allowed` with `state_reason = low_risk_remnant`
+- non-`logs` candidates must be `review_only`
+- `state_reason` must match the candidate category
 
 ## Recommended order
 
@@ -134,10 +143,31 @@ Rules:
 ```json
 {
   "kind": "confirm_delete",
+  "policy_reason": "low_risk_candidates_available_after_confirmation",
   "reason": "Review the ranked candidates, then confirm only the low-risk remnants the user actually wants removed."
 }
 ```
 
 Rules:
 - `kind` must be one of `expand_scope|review_candidates|confirm_delete|none`
+- `policy_reason` must be one of `no_candidates_found|low_risk_candidates_available_after_confirmation|specific_user_reference_required|none`
 - `reason` must be a string of 1-180 chars
+
+Producer-side invariants:
+- `summary.status = empty` must use `policy_reason = no_candidates_found`
+- `summary.status = actionable` must use `policy_reason = low_risk_candidates_available_after_confirmation`
+- `summary.status = review_only` must use `policy_reason = specific_user_reference_required`
+
+## Vocabulary alignment
+
+`cleanup_summary` v1 uses `state_reason` and `next_action.policy_reason` for the
+deterministic cleanup document itself.
+
+When cleanup flows continue through `Invoke-ClawLoop`, the loop may emit:
+- `PolicyReason` in `tool_result` or `tool_skipped` entries for write-boundary decisions
+- `ControlReason` in `tool_result` entries for cleanup discovery or cleanup latency budgets
+
+The intended alignment is:
+- document policy for candidate/action semantics lives in `cleanup_summary`
+- loop policy for write gating lives in `loop_log`
+- loop control for budget or preview boundaries lives in `loop_log`

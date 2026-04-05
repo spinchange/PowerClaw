@@ -44,8 +44,8 @@ Adding or enabling tools should be straightforward without weakening safety.
   policy checks where practical.
 - Improve real provider-backed answer consistency for flagship workflows,
   especially multi-tool health-check, cleanup, and investigation prompts.
-- Decide whether the structured log contract should expand beyond the current
-  minimal supported subset.
+- Decide whether `loop_log` should expand beyond the current v1 event contract
+  into a richer execution trace or stay intentionally narrow.
 - Keep live provider verification easy to run while preserving the fast offline
   default suite, and keep provider account-state failures diagnosable when a key,
   quota, or billing issue blocks verification.
@@ -85,8 +85,8 @@ Adding or enabling tools should be straightforward without weakening safety.
   enforces fully qualified paths plus protected-root blocking.
 - Structured logs now distinguish blocked, declined, confirmed, executed, and
   final-answer outcomes explicitly for loop inspection.
-- Structured logs now include a minimal supported subset with `SchemaVersion`
-  and stable core fields for every entry.
+- Structured logs now emit versioned `loop_log` v1 JSON lines with stable core
+  fields, explicit event/outcome pairs, and a formal schema.
 - Install and setup ergonomics improved with provider-specific example configs,
   clearer validation guidance, and better installed-module defaults.
 - `Fetch-WebPage` returned to the default workbench surface, and onboarding now

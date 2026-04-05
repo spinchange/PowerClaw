@@ -6,6 +6,8 @@ A Windows-native operations copilot for people who already live in PowerShell. Y
 
 The model never generates raw PowerShell. It picks from a registry of approved, auditable tools you control.
 
+Current release candidate: `v0.2.0`
+
 ---
 
 ## Best fit
@@ -188,6 +190,20 @@ If Pester 5.7.1 is not installed yet:
 Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -SkipPublisherCheck
 ```
 
+## Current release notes
+
+`v0.2.0` is the current tag candidate for the first release that treats both
+`system_triage` and `cleanup_summary` as formal local JSON document surfaces.
+
+Highlights:
+- deterministic `Invoke-SystemTriage` and `Invoke-CleanupSummary` reducers are now part of the exported module surface
+- flagship health-check and cleanup prompts now prefer the deterministic local tools before broader provider-led exploration
+- cleanup recommendations now expose ranked candidates plus `review_only` versus `execution_allowed` states
+- delete safety is stricter around permanent intent, sensitive targets, and evidence-backed exact-path execution
+- provider translation and loop behavior have stronger offline regression coverage, with live provider smoke kept opt-in
+
+See [CHANGELOG.md](CHANGELOG.md) for the release entry and [docs/known-issues.md](docs/known-issues.md) for remaining limitations before or after tagging.
+
 ---
 
 ## Default tools
@@ -264,15 +280,19 @@ Risk levels: `ReadOnly` (runs freely) · `Write` (requires an explicit confirmat
 - **Output truncation.** Tool output is capped at `max_output_chars` (config.json) before being sent to the API.
 - **Structured loop logs.** Each step writes structured append-only log entries with stable event/outcome pairs for requests, previews, blocks, declines, confirmations, executions, final answers, and aborts.
 
-### Supported log subset
+### Loop log v1
 
-PowerClaw now treats a small core of the loop log schema as supported:
+PowerClaw now emits versioned `loop_log` v1 JSON lines for structured loop
+logging.
 
-- always present: `SchemaVersion`, `Timestamp`, `Event`, `Outcome`, `Step`
-- supported when applicable: `Tool`, `ToolUseId`, `Reason`
-
-Fields such as `Args`, `ResultPreview`, `ResultLen`, and `DurationMs` are still
-best-effort implementation detail rather than stable contract.
+- always present: `SchemaVersion`, `Kind`, `Timestamp`, `Event`, `Outcome`, `Step`
+- stable event/outcome pairs now define the meaning of request, preview, block,
+  decline, confirmation, execution, final-answer, and abort entries
+- normalized `PolicyReason` values now cover write-boundary decisions, and
+  normalized `ControlReason` values now cover repeated-call, plan-preview, and
+  latency-budget control paths
+- event-specific fields are defined in [docs/loop-log-v1.md](docs/loop-log-v1.md)
+  with the matching schema in [docs/loop-log-v1.schema.json](docs/loop-log-v1.schema.json)
 
 ---
 
