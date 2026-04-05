@@ -256,6 +256,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the release entry and [docs/known-issues.md
 |------|----------|-------------|
 | `Get-SystemTriage` | SystemInfo | Deterministic bounded workstation-health triage across system, process, service, event, and storage signals |
 | `Get-CleanupSummary` | Filesystem | Deterministic bounded cleanup summary with ranked candidates, candidate states, and the next safe action |
+| `Get-PowerSettings` | SystemInfo | Current display timeout, sleep, hibernate, and basic lock-related idle settings for the active power scheme |
 | `Get-RecentChangesSummary` | SystemInfo | Deterministic bounded summary of recent file changes and recent system events |
 | `Get-SystemSummary` | SystemInfo | CPU, RAM, uptime, top processes |
 | `Get-TopProcesses` | SystemInfo | Processes sorted by CPU or memory |

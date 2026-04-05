@@ -26,6 +26,7 @@ function Test-PowerClawSetup {
         ModuleOnPsModulePath = $false
         LauncherOnPath     = $false
         PathEntriesChecked = @()
+        Warnings           = @()
         Issues             = @()
         Recommendations    = @()
         Ready              = $false
@@ -79,7 +80,11 @@ function Test-PowerClawSetup {
 
     $result.WebFetchReady = Test-Path -LiteralPath $result.WebFetchRuntimePath
     if (-not $result.WebFetchReady) {
-        $result.Issues += "Fetch-WebPage runtime is not installed. The default web tool depends on the Playwright setup."
+        if (-not [string]::IsNullOrWhiteSpace([System.Environment]::GetEnvironmentVariable('POWERCLAW_PLAYWRIGHT_BUILD'))) {
+            $result.Warnings += "POWERCLAW_PLAYWRIGHT_BUILD points to a missing path: $($result.WebFetchRuntimePath)"
+        } else {
+            $result.Warnings += "Fetch-WebPage runtime is optional and is not currently installed."
+        }
         $result.Recommendations += "Run: pwsh -File .\Install-PowerClawWebRuntime.ps1"
     }
 

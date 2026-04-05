@@ -9,6 +9,7 @@ function ConvertTo-ClaudeToolSchema {
 
     foreach ($p in $Tool.Parameters) {
         $prop = @{ type = (ConvertTo-JsonType $p.Type) }
+        if ($p.Type -in @('DateTime', 'DateTimeOffset')) { $prop.format = 'date-time' }
         if ($p.Enum)              { $prop.enum = $p.Enum }
         if ($null -ne $p.Min)     { $prop.minimum = $p.Min }
         if ($null -ne $p.Max)     { $prop.maximum = $p.Max }
@@ -39,6 +40,8 @@ function ConvertTo-JsonType {
         'Boolean' { 'boolean' }
         'Switch'  { 'boolean' }
         'SwitchParameter' { 'boolean' }
+        'DateTime' { 'string' }
+        'DateTimeOffset' { 'string' }
         default   { 'string' }
     }
 }

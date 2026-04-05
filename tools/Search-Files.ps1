@@ -31,6 +31,10 @@ function Search-Files {
 
         [int]$MinSizeMB = 0,
 
+        [datetime]$After,
+
+        [datetime]$Before,
+
         [bool]$Aggregate = $false
     )
 
@@ -66,7 +70,8 @@ function Search-Files {
         'Name'         { 'System.ItemName ASC' }
     }
 
-    $topClause = if ($Aggregate) { "" } else { "TOP $Limit " }
+    $needsPostFilter = $PSBoundParameters.ContainsKey('After') -or $PSBoundParameters.ContainsKey('Before')
+    $topClause = if ($Aggregate -or $needsPostFilter) { "" } else { "TOP $Limit " }
     $sql = "SELECT ${topClause}System.ItemName, System.ItemPathDisplay, System.Size, System.DateModified " +
            "FROM SystemIndex WHERE $($where -join ' AND ') ORDER BY $sortCol"
 
@@ -99,18 +104,7 @@ function Search-Files {
         }
     }
 
-    if ($Aggregate) {
-        $rows = $ds.Tables[0].Rows
-        $totalBytes = ($rows | ForEach-Object {
-            if ($_['SYSTEM.SIZE'] -ne [DBNull]::Value) { [double]$_['SYSTEM.SIZE'] } else { 0 }
-        } | Measure-Object -Sum).Sum
-        [PSCustomObject]@{
-            FileCount   = $rows.Count
-            TotalSizeMB = [math]::Round($totalBytes / 1MB, 1)
-            TotalSizeGB = [math]::Round($totalBytes / 1GB, 2)
-        }
-    }
-    else {
+    $resultRows = @(
         $ds.Tables[0].Rows | ForEach-Object {
             [PSCustomObject]@{
                 Name         = $_['SYSTEM.ITEMNAME']
@@ -119,5 +113,26 @@ function Search-Files {
                 DateModified = $_['SYSTEM.DATEMODIFIED']
             }
         }
+    )
+
+    if ($PSBoundParameters.ContainsKey('After')) {
+        $resultRows = @($resultRows | Where-Object { $_.DateModified -ge $After })
+    }
+    if ($PSBoundParameters.ContainsKey('Before')) {
+        $resultRows = @($resultRows | Where-Object { $_.DateModified -le $Before })
+    }
+
+    if ($Aggregate) {
+        $totalBytes = ($resultRows | ForEach-Object {
+            if ($_.SizeMB -ne $null) { [double]$_.SizeMB * 1MB } else { 0 }
+        } | Measure-Object -Sum).Sum
+        [PSCustomObject]@{
+            FileCount   = $resultRows.Count
+            TotalSizeMB = [math]::Round($totalBytes / 1MB, 1)
+            TotalSizeGB = [math]::Round($totalBytes / 1GB, 2)
+        }
+    }
+    else {
+        @($resultRows | Select-Object -First $Limit)
     }
 }

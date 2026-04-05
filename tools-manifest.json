@@ -1,7 +1,8 @@
 {
   "approved_tools": [
-    "Fetch-WebPage",
     "Get-CleanupSummary",
+    "Get-PowerSettings",
+    "Get-RecentChangesSummary",
     "Get-TopProcesses",
     "Get-SystemTriage",
     "Get-DirectoryListing",
@@ -9,6 +10,7 @@
     "Get-SystemSummary",
     "Read-FileContent",
     "Search-Files",
+    "Search-LocalKnowledge",
     "Get-NetworkStatus",
     "Get-StorageStatus",
     "Get-ServiceStatus",

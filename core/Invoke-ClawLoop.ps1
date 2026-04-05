@@ -261,6 +261,13 @@ function Test-ClawInvestigationGoal {
     return (
         $UserGoal -match '\bread\b' -or
         $UserGoal -match '\bconfig\b' -or
+        $UserGoal -match '\bsettings\b' -or
+        $UserGoal -match '\bscreen\b' -or
+        $UserGoal -match '\block screen\b' -or
+        $UserGoal -match '\bsleep\b' -or
+        $UserGoal -match '\bhibernate\b' -or
+        $UserGoal -match '\bpower plan\b' -or
+        $UserGoal -match '\bdisplay timeout\b' -or
         $UserGoal -match '\blog\b' -or
         $UserGoal -match '\bmanifest\b' -or
         $UserGoal -match '\breadme\b' -or
@@ -614,6 +621,19 @@ function Get-ClawStructuredEvidencePreview {
                 if ($contentLines.Count -gt 0) {
                     return ($contentLines -join '; ')
                 }
+                }
+            }
+        'Get-PowerSettings' {
+            $headlineLine = @($lines | Where-Object { $_ -match '^\s*headline\s*:\s*' } | Select-Object -First 1)
+            $sleepLine = @($lines | Where-Object { $_ -match '^\s*sleep\s*:\s*' } | Select-Object -First 1)
+            $lockLine = @($lines | Where-Object { $_ -match '^\s*lock\s*:\s*' } | Select-Object -First 1)
+
+            $parts = [System.Collections.Generic.List[string]]::new()
+            if ($headlineLine) { $parts.Add($headlineLine[0].Trim()) | Out-Null }
+            if ($sleepLine) { $parts.Add($sleepLine[0].Trim()) | Out-Null }
+            if ($lockLine) { $parts.Add($lockLine[0].Trim()) | Out-Null }
+            if ($parts.Count -gt 0) {
+                return ($parts -join '; ')
             }
         }
         'Fetch-WebPage' {
@@ -900,6 +920,41 @@ function Normalize-ClawStructuredSections {
         return $Content
     }
 
+    $captured = Get-ClawStructuredSectionMap -Content $Content -Headers $Headers
+    if ($captured.Count -eq 0) {
+        return $Content
+    }
+
+    $normalizedHeaders = @($Headers | ForEach-Object { $_.ToLowerInvariant() })
+    $output = [System.Collections.Generic.List[string]]::new()
+    foreach ($header in $normalizedHeaders) {
+        if (-not $captured.Contains($header)) {
+            continue
+        }
+
+        $displayHeader = ($Headers | Where-Object { $_.ToLowerInvariant() -eq $header } | Select-Object -First 1)
+        $value = [string]$captured[$header]
+        $output.Add(("{0}: {1}" -f $displayHeader, $value).TrimEnd()) | Out-Null
+    }
+
+    if ($output.Count -eq 0) {
+        return $Content
+    }
+
+    return ($output -join "`n")
+}
+
+function Get-ClawStructuredSectionMap {
+    param(
+        [string]$Content,
+        [string[]]$Headers
+    )
+
+    $captured = [ordered]@{}
+    if ([string]::IsNullOrWhiteSpace($Content) -or -not $Headers -or $Headers.Count -eq 0) {
+        return $captured
+    }
+
     $lines = @($Content -split "`r?`n")
     $normalizedHeaders = @($Headers | ForEach-Object { $_.ToLowerInvariant() })
     $firstHeaderIndex = -1
@@ -915,10 +970,9 @@ function Normalize-ClawStructuredSections {
     }
 
     if ($firstHeaderIndex -lt 0) {
-        return $Content
+        return $captured
     }
 
-    $captured = [ordered]@{}
     $currentHeader = $null
     $currentLines = [System.Collections.Generic.List[string]]::new()
 
@@ -947,26 +1001,80 @@ function Normalize-ClawStructuredSections {
         $captured[$currentHeader] = ($currentLines -join "`n").Trim()
     }
 
-    if ($captured.Count -eq 0) {
+    return $captured
+}
+
+function Test-ClawInstructionalSectionValue {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $true
+    }
+
+    $normalized = $Value.Trim().ToLowerInvariant()
+    return (
+        $normalized -match '^(explain|mention|call out|interpret|use narrower|only use narrower|based on the source material already gathered)' -or
+        $normalized -match '^powerclaw would '
+    )
+}
+
+function Test-ClawRawEvidenceSectionValue {
+    param([string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $true
+    }
+
+    return (
+        (Test-ClawInstructionalSectionValue -Value $Value) -or
+        $Value -match 'TimeCreated\s*:' -or
+        $Value -match 'EventId\s*:' -or
+        $Value -match 'Source\s*:' -or
+        $Value -match '\@\{' -or
+        $Value -match '^\s*System\s*;' -or
+        ($Value.Length -gt 220 -and $Value -match ';')
+    )
+}
+
+function Repair-ClawStructuredInvestigationAnswer {
+    param(
+        [string]$Content,
+        [array]$Messages
+    )
+
+    $headers = @('Answer', 'Summary', 'Evidence', 'Implication')
+    $sections = Get-ClawStructuredSectionMap -Content $Content -Headers $headers
+    if ($sections.Count -eq 0) {
         return $Content
     }
 
-    $output = [System.Collections.Generic.List[string]]::new()
-    foreach ($header in $normalizedHeaders) {
-        if (-not $captured.Contains($header)) {
-            continue
-        }
-
-        $displayHeader = ($Headers | Where-Object { $_.ToLowerInvariant() -eq $header } | Select-Object -First 1)
-        $value = [string]$captured[$header]
-        $output.Add(("{0}: {1}" -f $displayHeader, $value).TrimEnd()) | Out-Null
+    $evidence = Get-ClawLatestToolEvidence -Messages $Messages
+    $evidencePreview = ''
+    if ($evidence) {
+        $evidencePreview = Get-ClawStructuredEvidencePreview -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+    }
+    if ([string]::IsNullOrWhiteSpace($evidencePreview)) {
+        $evidencePreview = 'Use the source material already gathered.'
     }
 
-    if ($output.Count -eq 0) {
-        return $Content
+    $answerHeader = if ($sections.Contains('answer')) { 'Answer' } else { 'Summary' }
+    $answerValue = if ($sections.Contains('answer')) { [string]$sections['answer'] } else { [string]$sections['summary'] }
+    $evidenceValue = if ($sections.Contains('evidence')) { [string]$sections['evidence'] } else { '' }
+    $implicationValue = if ($sections.Contains('implication')) { [string]$sections['implication'] } else { '' }
+
+    if (Test-ClawRawEvidenceSectionValue -Value $evidenceValue) {
+        $evidenceValue = $evidencePreview
     }
 
-    return ($output -join "`n")
+    if (Test-ClawInstructionalSectionValue -Value $implicationValue) {
+        $implicationValue = 'This is the main takeaway for the current setup or question based on the source material already gathered.'
+    }
+
+    return @"
+${answerHeader}: $answerValue
+Evidence: $evidenceValue
+Implication: $implicationValue
+"@.Trim()
 }
 
 function Format-ClawFinalAnswer {
@@ -997,6 +1105,10 @@ function Format-ClawFinalAnswer {
         return Normalize-ClawStructuredSections `
             -Content $trimmedContent `
             -Headers @('Overall status', 'Key findings', 'Why it matters', 'Next checks')
+    }
+
+    if ($IsInvestigationGoal -and $hasStructuredInvestigationSections) {
+        return Repair-ClawStructuredInvestigationAnswer -Content $trimmedContent -Messages $Messages
     }
 
     if ($IsHealthCheckGoal -and -not $hasStructuredHealthSections) {
@@ -1299,6 +1411,28 @@ function Get-ClawWorkflowPromptHints {
     }
 
     if (Test-ClawInvestigationGoal -UserGoal $UserGoal) {
+        if (
+            'Get-PowerSettings' -in $availableToolNames -and
+            ($normalizedGoal -match '\bscreen\b' -or
+             $normalizedGoal -match '\block screen\b' -or
+             $normalizedGoal -match '\bsleep\b' -or
+             $normalizedGoal -match '\bhibernate\b' -or
+             $normalizedGoal -match '\bpower plan\b' -or
+             $normalizedGoal -match '\bdisplay timeout\b' -or
+             $normalizedGoal -match '\bturning off\b')
+        ) {
+            $hints.Add('WORKFLOW HINT: For display timeout, sleep, hibernate, lock screen, or power-plan settings questions, start with Get-PowerSettings when it is available. Do not use Get-SystemTriage unless the user is asking about a failure or health problem.')
+        }
+        if (
+            'Read-FileContent' -in $availableToolNames -and
+            ($normalizedGoal -match '\bconfig\b' -or
+             $normalizedGoal -match '\bsettings\b' -or
+             $normalizedGoal -match '\bmanifest\b' -or
+             $normalizedGoal -match '\breadme\b' -or
+             $normalizedGoal -match '\blog\b')
+        ) {
+            $hints.Add('WORKFLOW HINT: For config, settings, manifest, README, or log questions, start with Read-FileContent when it is available. Do not use Get-SystemSummary unless the user is explicitly asking about machine health or system state.')
+        }
         $hints.Add('WORKFLOW HINT: For read, config, log, and webpage investigation prompts, start with a plain-English summary before details.')
         $hints.Add('WORKFLOW HINT: After the summary, pull out the specific settings, warnings, or takeaways that matter. If the content suggests an action, end with the implication or next step.')
         $hints.Add('WORKFLOW HINT: A normal investigation should usually finish in 1 to 2 tool calls. Do not keep opening adjacent files or pages unless the first result leaves a specific ambiguity you need to resolve.')

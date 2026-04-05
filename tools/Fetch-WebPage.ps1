@@ -57,7 +57,7 @@ function Resolve-ClawWebFetchFailureMessage {
     }
 
     if ($FailureText -match 'Executable doesn''t exist|executable doesn''t exist|Failed to launch.*browser') {
-        return "Fetch-WebPage could not find a usable browser runtime for '$Url'.$attemptText Re-run `Install-PowerClawWebRuntime.ps1` to refresh the Playwright browser install."
+        return "Fetch-WebPage could not find a usable browser runtime for '$Url'.$attemptText Re-run `Install-PowerClawWebRuntime.ps1` to refresh the Playwright browser install, then run Test-PowerClawSetup to verify the web runtime path."
     }
 
     if ($FailureText -match 'Timeout|timed out') {

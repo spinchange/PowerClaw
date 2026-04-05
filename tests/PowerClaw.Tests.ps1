@@ -19,6 +19,7 @@ BeforeAll {
     . (Join-Path $script:RepoRoot 'tools\Get-ServiceStatus.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-EventLogEntries.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-StorageStatus.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Get-PowerSettings.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-TopProcesses.ps1')
     . (Join-Path $script:RepoRoot 'tools\Search-Files.ps1')
     . (Join-Path $script:RepoRoot 'tools\Search-LocalKnowledge.ps1')
@@ -243,6 +244,121 @@ Describe 'Tool behavior' {
         @($actual.MemoryMB) | Should -Be @($actual.MemoryMB | Sort-Object -Descending)
     }
 
+    It 'reads current power display sleep and lock-related settings' {
+        Mock powercfg {
+            if ($args[0] -eq '/getactivescheme') {
+                return 'Power Scheme GUID: 11111111-2222-3333-4444-555555555555  (Balanced)'
+            }
+
+            $joined = $args -join ' '
+            switch -Regex ($joined) {
+                'SUB_VIDEO VIDEOIDLE' {
+                    @'
+Current AC Power Setting Index: 0x00000258
+Current DC Power Setting Index: 0x0000012c
+'@
+                    break
+                }
+                'SUB_SLEEP STANDBYIDLE' {
+                    @'
+Current AC Power Setting Index: 0x00000708
+Current DC Power Setting Index: 0x00000384
+'@
+                    break
+                }
+                'SUB_SLEEP HIBERNATEIDLE' {
+                    @'
+Current AC Power Setting Index: 0x00000e10
+Current DC Power Setting Index: 0x00000708
+'@
+                    break
+                }
+            }
+        }
+
+        Mock Get-ItemProperty {
+            [PSCustomObject]@{
+                ScreenSaveActive = '1'
+                ScreenSaveTimeOut = '900'
+                ScreenSaverIsSecure = '1'
+            }
+        } -ParameterFilter { $Path -eq 'HKCU:\Control Panel\Desktop' }
+
+        Mock Get-ItemProperty {
+            [PSCustomObject]@{
+                InactivityTimeoutSecs = 600
+            }
+        } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' }
+
+        $result = Get-PowerSettings
+
+        $result.kind | Should -Be 'power_settings'
+        $result.active_scheme.name | Should -Be 'Balanced'
+        $result.display.timeout_ac_seconds | Should -Be 600
+        $result.display.timeout_dc_seconds | Should -Be 300
+        $result.sleep.timeout_ac_seconds | Should -Be 1800
+        $result.sleep.timeout_dc_seconds | Should -Be 900
+        $result.lock.machine_inactivity_timeout_seconds | Should -Be 600
+        $result.summary.headline | Should -Match 'Display timeout is 10 minute'
+    }
+
+    It 'executes Get-PowerSettings through the registered tool scriptblock' {
+        Mock powercfg {
+            if ($args[0] -eq '/getactivescheme') {
+                return 'Power Scheme GUID: 11111111-2222-3333-4444-555555555555  (Balanced)'
+            }
+
+            $joined = $args -join ' '
+            switch -Regex ($joined) {
+                'SUB_VIDEO VIDEOIDLE' {
+                    @'
+Current AC Power Setting Index: 0x00000258
+Current DC Power Setting Index: 0x0000012c
+'@
+                    break
+                }
+                'SUB_SLEEP STANDBYIDLE' {
+                    @'
+Current AC Power Setting Index: 0x00000708
+Current DC Power Setting Index: 0x00000384
+'@
+                    break
+                }
+                'SUB_SLEEP HIBERNATEIDLE' {
+                    @'
+Current AC Power Setting Index: 0x00000e10
+Current DC Power Setting Index: 0x00000708
+'@
+                    break
+                }
+            }
+        }
+
+        Mock Get-ItemProperty {
+            [PSCustomObject]@{
+                ScreenSaveActive = '1'
+                ScreenSaveTimeOut = '900'
+                ScreenSaverIsSecure = '1'
+            }
+        } -ParameterFilter { $Path -eq 'HKCU:\Control Panel\Desktop' }
+
+        Mock Get-ItemProperty {
+            [PSCustomObject]@{
+                InactivityTimeoutSecs = 600
+            }
+        } -ParameterFilter { $Path -eq 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' }
+
+        $registry = Register-ClawTools
+        $tool = $registry | Where-Object Name -eq 'Get-PowerSettings' | Select-Object -First 1
+
+        $tool | Should -Not -BeNullOrEmpty
+        $result = & $tool.ScriptBlock
+
+        $result.kind | Should -Be 'power_settings'
+        $result.display.timeout_ac_seconds | Should -Be 600
+        $result.sleep.timeout_dc_seconds | Should -Be 900
+    }
+
     It 'filters directory listings with inclusive After and Before bounds' {
         $tempDir = Join-Path $script:TempRoot "powerclaw-dir-filter-$([guid]::NewGuid().ToString('N'))"
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -463,6 +579,7 @@ Describe 'Registry and schema' {
         'Fetch-WebPage' -in @($manifest.approved_tools) | Should -BeFalse
         'Fetch-WebPage' -in @($manifest.disabled_tools) | Should -BeFalse
         'Get-CleanupSummary' -in @($manifest.approved_tools) | Should -BeTrue
+        'Get-PowerSettings' -in @($manifest.approved_tools) | Should -BeTrue
         'Search-LocalKnowledge' -in @($manifest.approved_tools) | Should -BeTrue
     }
 
@@ -612,6 +729,33 @@ Describe 'Providers' {
         $result.ToolInput.HoursBack | Should -Be 24
     }
 
+    It 'stub mode picks Get-PowerSettings for screen sleep and lock settings prompts' {
+        $result = Send-ClawRequest `
+            -Messages @(@{ role = 'user'; content = 'What are my system settings related to screen turning off, lock screen, sleep, etc?' }) `
+            -ToolSchemas @(
+                @{ name = 'Get-PowerSettings' },
+                @{ name = 'Get-SystemTriage' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Get-PowerSettings'
+    }
+
+    It 'stub mode picks Read-FileContent for config settings prompts' {
+        $result = Send-ClawRequest `
+            -Messages @(@{ role = 'user'; content = 'what do my config settings look like?' }) `
+            -ToolSchemas @(
+                @{ name = 'Read-FileContent' },
+                @{ name = 'Get-SystemSummary' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Read-FileContent'
+        $result.ToolInput.Path | Should -Be 'config.json'
+    }
+
     It 'stub mode turns tool output into a workflow-shaped final answer' {
         $result = Send-ClawRequest `
             -Messages @(
@@ -682,7 +826,7 @@ Content    : provider=openai
         $result.Type | Should -Be 'final_answer'
         $result.Content | Should -Match 'Answer: this file contains the main settings'
         $result.Content | Should -Match 'Evidence: PowerClaw would pull out the specific settings'
-        $result.Content | Should -Match 'Implication: explain what these values mean'
+        $result.Content | Should -Match 'Implication: these values determine how the current setup or workflow behaves'
     }
 
     It 'stub mode shapes webpage investigation answers as answer evidence implication' {
@@ -3089,6 +3233,50 @@ Content    : provider=openai
         $result | Should -Match '(?m)^Evidence: '
         $result | Should -Match 'provider=openai'
         $result | Should -Match '(?m)^Implication: '
+        $result | Should -Not -Match 'Implication: Explain what this means'
+    }
+
+    It 'repairs structured investigation answers that contain raw evidence dumps and instruction text' {
+        $result = Format-ClawFinalAnswer `
+            -Content @'
+Answer: Your config points at OpenAI.
+Evidence: System; ------ ; @{MachineName=LUNA; OSVersion=Microsoft Windows 11 Home}; TimeCreated : 2026-04-05 01:10:15; Source : Microsoft-Windows-IsolatedUserMode
+Implication: Explain what this means for the current setup or question, and only add a next step if the source material actually calls for one.
+'@ `
+            -Messages @(
+                @{
+                    role = 'assistant'
+                    content = @(@{
+                        type  = 'tool_use'
+                        id    = 'toolu_repair_1'
+                        name  = 'Read-FileContent'
+                        input = @{ Path = 'C:\dev\repos\PowerClaw\config.json' }
+                    })
+                }
+                @{
+                    role = 'user'
+                    content = @(@{
+                        type        = 'tool_result'
+                        tool_use_id = 'toolu_repair_1'
+                        content     = @'
+Path       : C:\dev\repos\PowerClaw\config.json
+LinesShown : 4
+Truncated  : False
+Content    : provider=openai
+             model=gpt-4.1-mini
+'@
+                    })
+                }
+            ) `
+            -IsHealthCheckGoal $false `
+            -IsCleanupGoal $false `
+            -IsInvestigationGoal $true `
+            -IsRecentChangesGoal $false
+
+        $result | Should -Match '^Answer: Your config points at OpenAI\.'
+        $result | Should -Match '(?m)^Evidence: provider=openai; model=gpt-4\.1-mini'
+        $result | Should -Match '(?m)^Implication: This is the main takeaway for the current setup or question based on the source material already gathered\.$'
+        $result | Should -Not -Match 'TimeCreated\s*:'
         $result | Should -Not -Match 'Implication: Explain what this means'
     }
 

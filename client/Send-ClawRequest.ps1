@@ -112,6 +112,24 @@ function Send-ClawRequest {
             }
 
             if (
+                ($normalizedPrompt -match '\bscreen\b' -or
+                 $normalizedPrompt -match '\block screen\b' -or
+                 $normalizedPrompt -match '\bsleep\b' -or
+                 $normalizedPrompt -match '\bhibernate\b' -or
+                 $normalizedPrompt -match '\bpower plan\b' -or
+                 $normalizedPrompt -match '\bdisplay timeout\b' -or
+                 $normalizedPrompt -match '\bturning off\b') -and
+                (Test-StubToolAvailable -ToolName 'Get-PowerSettings' -ToolSchemas $ToolSchemas)
+            ) {
+                $steps.Add((New-StubToolCall -ToolName 'Get-PowerSettings' -ToolInput @{})) | Out-Null
+
+                return [PSCustomObject]@{
+                    Steps       = @($steps)
+                    PlanSummary = 'Read the current power, display, sleep, and lock-related settings first, then explain the important timeouts in plain English.'
+                }
+            }
+
+            if (
                 ($normalizedPrompt -match '\bhealth\b' -or
                  $normalizedPrompt -match '\bcpu\b' -or
                  $normalizedPrompt -match '\bram\b' -or
@@ -144,6 +162,46 @@ function Send-ClawRequest {
                 return [PSCustomObject]@{
                     Steps       = @($steps)
                     PlanSummary = 'Start with deterministic system triage, add storage and network context only if needed, then summarize overall status and the most important issues.'
+                }
+            }
+
+            if (
+                ($normalizedPrompt -match '\bwhat changed\b' -or
+                 $normalizedPrompt -match '\brecent changes\b' -or
+                 $normalizedPrompt -match '\blast\s+\d+\s+hours?\b' -or
+                 $normalizedPrompt -match '\bcreated this week\b') -and
+                (Test-StubToolAvailable -ToolName 'Get-RecentChangesSummary' -ToolSchemas $ToolSchemas)
+            ) {
+                $steps.Add((New-StubToolCall -ToolName 'Get-RecentChangesSummary' -ToolInput @{
+                    Scope = $env:USERPROFILE
+                    HoursBack = 24
+                    Limit = 10
+                })) | Out-Null
+
+                return [PSCustomObject]@{
+                    Steps       = @($steps)
+                    PlanSummary = 'Start with one bounded recent-changes summary, then call out what changed and what stands out.'
+                }
+            }
+
+            if (
+                ($normalizedPrompt -match '\bnotes\b' -or
+                 $normalizedPrompt -match '\bdocs\b' -or
+                 $normalizedPrompt -match '\bjournal\b' -or
+                 $normalizedPrompt -match '\bvault\b' -or
+                 $normalizedPrompt -match '\blocal setup decisions\b' -or
+                 $normalizedPrompt -match '\blocal knowledge\b') -and
+                (Test-StubToolAvailable -ToolName 'Search-LocalKnowledge' -ToolSchemas $ToolSchemas)
+            ) {
+                $steps.Add((New-StubToolCall -ToolName 'Search-LocalKnowledge' -ToolInput @{
+                    Query = $Prompt
+                    Collection = 'all'
+                    Limit = 10
+                })) | Out-Null
+
+                return [PSCustomObject]@{
+                    Steps       = @($steps)
+                    PlanSummary = 'Search local notes and supporting docs first, then summarize the most relevant matches.'
                 }
             }
 
@@ -185,6 +243,7 @@ function Send-ClawRequest {
             if (
                 ($normalizedPrompt -match '\bread\b' -or
                  $normalizedPrompt -match '\bconfig\b' -or
+                 $normalizedPrompt -match '\bsettings\b' -or
                  $normalizedPrompt -match '\blog\b' -or
                  $normalizedPrompt -match '\bmanifest\b' -or
                  $normalizedPrompt -match '\breadme\b') -and
@@ -194,6 +253,9 @@ function Send-ClawRequest {
                     'tools-manifest.json'
                 }
                 elseif ($normalizedPrompt -match 'config\.json') {
+                    'config.json'
+                }
+                elseif ($normalizedPrompt -match '\bconfig\b' -or $normalizedPrompt -match '\bsettings\b') {
                     'config.json'
                 }
                 elseif ($normalizedPrompt -match 'readme') {
@@ -345,6 +407,15 @@ Key findings: $cpuText; $ramText; $uptimeText.
 Next checks: investigate only if one of those signals looks abnormal for the current workload.
 "@
                 }
+                'Get-PowerSettings' {
+                    return @"
+[Stub] Demo answer from ${toolName}:
+Answer: your current power settings show the active display, sleep, and lock-related idle timeouts.
+Evidence: PowerClaw would call out the active power scheme, display timeout, sleep timeout, hibernate timeout, and any lock timeout policy that is set.
+Implication: these settings determine when the screen turns off, when the machine sleeps, and whether an inactivity-based lock policy is in effect.
+Preview: $preview
+"@
+                }
                 'Search-Files' {
                     return @"
 [Stub] Demo answer from ${toolName}:
@@ -361,7 +432,7 @@ Preview: $preview
 [Stub] Demo answer from ${toolName}:
 Answer: this file contains the main settings or content relevant to the request.
 Evidence: PowerClaw would pull out the specific settings, warnings, or notable lines that matter.
-Implication: explain what these values mean for the current setup or workflow, then call out the next action only if the file suggests one.
+Implication: these values determine how the current setup or workflow behaves, and a next action only matters if the file points to one.
 Preview: $preview
 "@
                 }
