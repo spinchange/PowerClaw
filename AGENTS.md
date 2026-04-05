@@ -92,6 +92,13 @@ When adding or editing a tool:
 4. Prefer safe defaults and literal path handling for filesystem operations.
 5. Return structured objects rather than formatted text when practical.
 
+## Tool budget
+
+- Keep the default approved tool surface intentionally small.
+- Treat `20` default approved tools as the budget ceiling unless there is a documented reason to expand it.
+- Before adding a new default tool, check `docs/tool-budget.md` and make sure the new tool clears the admission and overlap rules there.
+- Prefer adding at most `2` new default tools before reevaluating the overall surface for overlap or consolidation.
+
 ## Manifest rules
 
 - `tools-manifest.json` is the source of truth for what can load.
