@@ -183,6 +183,7 @@
         "priority",
         "kind",
         "target",
+        "reason_code",
         "reason",
         "related_finding_ids"
       ],
@@ -211,6 +212,18 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 80
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "cpu_consumers_review",
+            "memory_consumers_review",
+            "volume_consumers_review",
+            "service_instability_confirmation",
+            "service_instability_escalation",
+            "event_source_review",
+            "uptime_monitoring"
+          ]
         },
         "reason": {
           "type": "string",

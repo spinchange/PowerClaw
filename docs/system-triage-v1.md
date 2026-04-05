@@ -160,6 +160,7 @@ Each item in `actions` must have exactly these fields:
   "priority": 1,
   "kind": "inspect",
   "target": "processes",
+  "reason_code": "memory_consumers_review",
   "reason": "Memory pressure is elevated and the top consumers should be reviewed",
   "related_finding_ids": ["high_memory:global"]
 }
@@ -170,10 +171,19 @@ Rules:
 - `priority` must be a unique integer from `1` to `5`
 - `kind` must be one of `inspect|confirm|ignore|monitor|escalate`
 - `target` must be a string of 1-80 chars
+- `reason_code` must be one of:
+  - `cpu_consumers_review`
+  - `memory_consumers_review`
+  - `volume_consumers_review`
+  - `service_instability_confirmation`
+  - `service_instability_escalation`
+  - `event_source_review`
+  - `uptime_monitoring`
 - `reason` must be a string of 1-160 chars
 - `related_finding_ids` must contain 1-3 finding IDs present in `findings`
 - actions must be sorted by ascending `priority`
 - priorities must be contiguous starting at `1`
+- `reason_code` carries the machine-readable recommendation rationale; `reason` remains human-readable explanatory text
 
 V1 action constraints:
 - actions must recommend inspection, confirmation, monitoring, or escalation only
@@ -703,36 +713,43 @@ Default action templates:
   - `id`: `inspect_cpu_processes`
   - `kind`: `inspect`
   - `target`: `processes`
+  - `reason_code`: `cpu_consumers_review`
   - `reason`: `Review the top CPU consumers to identify avoidable load`
 - `high_memory`
   - `id`: `inspect_memory_top_processes`
   - `kind`: `inspect`
   - `target`: `processes`
+  - `reason_code`: `memory_consumers_review`
   - `reason`: `Review the top memory consumers to identify avoidable pressure`
 - `low_disk`
   - `id`: `inspect_volume_{volume}`
   - `kind`: `inspect`
   - `target`: `volume:{volume}`
+  - `reason_code`: `volume_consumers_review`
   - `reason`: `Review large consumers on the affected volume before space becomes critical`
 - `unstable_service` single
   - `id`: `confirm_{service}_stability`
   - `kind`: `confirm`
   - `target`: `service:{service}`
+  - `reason_code`: `service_instability_confirmation`
   - `reason`: `Confirm whether the service instability is ongoing or user-impacting`
 - `unstable_service` rolled-up
   - `id`: `escalate_service_instability`
   - `kind`: `escalate`
   - `target`: `services`
+  - `reason_code`: `service_instability_escalation`
   - `reason`: `Multiple important services show instability and should be reviewed together`
 - `repeated_system_errors`
   - `id`: `inspect_event_source_{source}`
   - `kind`: `inspect`
   - `target`: `event_source:{source}`
+  - `reason_code`: `event_source_review`
   - `reason`: `Review repeated recent errors from the dominant event source`
 - `abnormal_uptime_signal`
   - `id`: `monitor_uptime_context`
   - `kind`: `monitor`
   - `target`: `uptime`
+  - `reason_code`: `uptime_monitoring`
   - `reason`: `Track whether current signals change as uptime normalizes`
 
 Action reduction:
@@ -774,6 +791,7 @@ Before emission, the producer must validate:
 - related finding IDs resolve
 - unique finding IDs
 - unique action priorities
+- action template, `reason_code`, and `reason` consistency for each related finding
 - `summary.status` matches finding severities
 - `summary.score` matches scoring rule
 - `window_minutes == 60`

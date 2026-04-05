@@ -111,6 +111,7 @@ Expected behavior:
       "priority": 1,
       "kind": "inspect",
       "target": "processes",
+      "reason_code": "memory_consumers_review",
       "reason": "Review the top memory consumers to identify avoidable pressure",
       "related_finding_ids": [
         "high_memory:global"
@@ -196,6 +197,7 @@ Expected behavior:
       "priority": 1,
       "kind": "inspect",
       "target": "processes",
+      "reason_code": "memory_consumers_review",
       "reason": "Review the top memory consumers to identify avoidable pressure",
       "related_finding_ids": [
         "high_memory:global"
@@ -206,6 +208,7 @@ Expected behavior:
       "priority": 2,
       "kind": "confirm",
       "target": "service:Spooler",
+      "reason_code": "service_instability_confirmation",
       "reason": "Confirm whether the service instability is ongoing or user-impacting",
       "related_finding_ids": [
         "unstable_service:spooler"

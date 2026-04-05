@@ -1255,6 +1255,7 @@ Describe 'System triage producer' {
         $doc.findings[0].evidence[1] | Should -Match 'Dnscache, Spooler'
         $doc.actions[0].kind | Should -Be 'escalate'
         $doc.actions[0].id | Should -Be 'escalate_service_instability'
+        $doc.actions[0].reason_code | Should -Be 'service_instability_escalation'
     }
 
     It 'derives findings actions and headline deterministically for a mixed abnormal case' {
@@ -1285,6 +1286,13 @@ Describe 'System triage producer' {
             'inspect_cpu_processes',
             'monitor_uptime_context',
             'confirm_spooler_stability'
+        )
+        @($doc.actions | ForEach-Object reason_code) | Should -Be @(
+            'volume_consumers_review',
+            'memory_consumers_review',
+            'cpu_consumers_review',
+            'uptime_monitoring',
+            'service_instability_confirmation'
         )
         $doc.summary.status | Should -Be 'warning'
         $doc.summary.score | Should -Be 100
@@ -1319,6 +1327,7 @@ Describe 'System triage producer' {
                     priority = 1
                     kind = 'inspect'
                     target = 'processes'
+                    reason_code = 'memory_consumers_review'
                     reason = 'Review the top memory consumers to identify avoidable pressure'
                     related_finding_ids = @('high_memory:other')
                 }
@@ -1372,6 +1381,7 @@ Describe 'System triage producer' {
                     priority = 2
                     kind = 'inspect'
                     target = 'processes'
+                    reason_code = 'cpu_consumers_review'
                     reason = 'Review the top CPU consumers to identify avoidable load'
                     related_finding_ids = @('high_cpu:not_global')
                 },
@@ -1380,6 +1390,7 @@ Describe 'System triage producer' {
                     priority = 1
                     kind = 'monitor'
                     target = 'uptime'
+                    reason_code = 'uptime_monitoring'
                     reason = 'Track whether current signals change as uptime normalizes'
                     related_finding_ids = @('abnormal_uptime_signal:global')
                 }
@@ -1430,6 +1441,7 @@ Describe 'System triage producer' {
                     priority = 1
                     kind = 'monitor'
                     target = 'uptime'
+                    reason_code = 'uptime_monitoring'
                     reason = 'Track whether current signals change as uptime normalizes'
                     related_finding_ids = @('abnormal_uptime_signal:global')
                 }
@@ -1447,6 +1459,53 @@ Describe 'System triage producer' {
         $validation = Test-SystemTriageDocument -Document $invalid
         $validation.IsValid | Should -BeFalse
         @($validation.Errors) -join ' ' | Should -Match 'abnormal_uptime_signal must not appear without another finding'
+    }
+
+    It 'rejects system triage actions whose reason_code drifts from the canonical template' {
+        $invalid = [PSCustomObject]@{
+            schema_version = '1.0'
+            kind = 'system_triage'
+            host = 'ws-01'
+            captured_at = '2026-04-04T18:05:00-05:00'
+            window_minutes = 60
+            summary = [PSCustomObject]@{ status = 'warning'; score = 20; headline = 'CPU usage is elevated' }
+            findings = @(
+                [PSCustomObject]@{
+                    id = 'high_cpu:global'
+                    type = 'high_cpu'
+                    severity = 'warning'
+                    category = 'cpu'
+                    title = 'CPU usage is elevated'
+                    reason = 'Current CPU usage is above the warning threshold'
+                    evidence = @('CPU in use: 73%')
+                    confidence = 0.95
+                    source_refs = @('src_system')
+                }
+            )
+            actions = @(
+                [PSCustomObject]@{
+                    id = 'inspect_cpu_processes'
+                    priority = 1
+                    kind = 'inspect'
+                    target = 'processes'
+                    reason_code = 'memory_consumers_review'
+                    reason = 'Review the top CPU consumers to identify avoidable load'
+                    related_finding_ids = @('high_cpu:global')
+                }
+            )
+            sources = @(
+                [PSCustomObject]@{
+                    id = 'src_system'
+                    tool = 'Get-SystemSummary'
+                    captured_at = '2026-04-04T18:05:00-05:00'
+                    scope = 'local_host'
+                }
+            )
+        }
+
+        $validation = Test-SystemTriageDocument -Document $invalid
+        $validation.IsValid | Should -BeFalse
+        @($validation.Errors) -join ' ' | Should -Match 'Action reason_code mismatch'
     }
 }
 

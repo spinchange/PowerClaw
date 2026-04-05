@@ -227,6 +227,28 @@ function New-SystemTriageDocument {
 
     function Format-SystemTriageNumber { param([double]$Value) if ([math]::Abs($Value - [math]::Round($Value)) -lt 0.001) { [string][int][math]::Round($Value) } else { '{0:0.0}' -f $Value } }
     function Get-SystemTriageIdSegment { param([string]$Value) $n = [regex]::Replace((($Value ?? '').Trim().ToLowerInvariant()), '\s+', '_'); $n = $n.Replace(':', ''); [regex]::Replace($n, '[^a-z0-9_-]', '') }
+    function New-SystemTriageActionTemplate {
+        param(
+            [string]$Id,
+            [string]$Kind,
+            [string]$Target,
+            [string]$ReasonCode,
+            [string]$Reason,
+            [object]$Finding
+        )
+
+        [PSCustomObject]@{
+            id = $Id
+            kind = $Kind
+            target = $Target
+            reason_code = $ReasonCode
+            reason = $Reason
+            related_finding_ids = @($Finding.id)
+            severity = $Finding.severity
+            confidence = $Finding.confidence
+            finding_type = $Finding.type
+        }
+    }
     function Get-SystemTriageDefaultSources {
         param([object]$InputObject)
         $capturedAt = [string]($InputObject.captured_at ?? ([datetimeoffset]::Now.ToString('o')))
@@ -332,30 +354,30 @@ function New-SystemTriageDocument {
 
     $actionTemplates = foreach ($finding in $sortedFindings) {
         switch ($finding.type) {
-            'high_cpu' { [PSCustomObject]@{ id = 'inspect_cpu_processes'; kind = 'inspect'; target = 'processes'; reason = 'Review the top CPU consumers to identify avoidable load'; related_finding_ids = @($finding.id); severity = $finding.severity; confidence = $finding.confidence; finding_type = $finding.type } }
-            'high_memory' { [PSCustomObject]@{ id = 'inspect_memory_top_processes'; kind = 'inspect'; target = 'processes'; reason = 'Review the top memory consumers to identify avoidable pressure'; related_finding_ids = @($finding.id); severity = $finding.severity; confidence = $finding.confidence; finding_type = $finding.type } }
+            'high_cpu' { New-SystemTriageActionTemplate -Id 'inspect_cpu_processes' -Kind 'inspect' -Target 'processes' -ReasonCode 'cpu_consumers_review' -Reason 'Review the top CPU consumers to identify avoidable load' -Finding $finding }
+            'high_memory' { New-SystemTriageActionTemplate -Id 'inspect_memory_top_processes' -Kind 'inspect' -Target 'processes' -ReasonCode 'memory_consumers_review' -Reason 'Review the top memory consumers to identify avoidable pressure' -Finding $finding }
             'low_disk' {
                 $volume = ($finding.id -split ':', 2)[1].ToUpperInvariant()
-                [PSCustomObject]@{ id = "inspect_volume_$volume"; kind = 'inspect'; target = "volume:$volume"; reason = 'Review large consumers on the affected volume before space becomes critical'; related_finding_ids = @($finding.id); severity = $finding.severity; confidence = $finding.confidence; finding_type = $finding.type }
+                New-SystemTriageActionTemplate -Id "inspect_volume_$volume" -Kind 'inspect' -Target "volume:$volume" -ReasonCode 'volume_consumers_review' -Reason 'Review large consumers on the affected volume before space becomes critical' -Finding $finding
             }
             'unstable_service' {
                 if ($finding.id -eq 'unstable_service:multiple') {
-                    [PSCustomObject]@{ id = 'escalate_service_instability'; kind = 'escalate'; target = 'services'; reason = 'Multiple important services show instability and should be reviewed together'; related_finding_ids = @($finding.id); severity = $finding.severity; confidence = $finding.confidence; finding_type = $finding.type }
+                    New-SystemTriageActionTemplate -Id 'escalate_service_instability' -Kind 'escalate' -Target 'services' -ReasonCode 'service_instability_escalation' -Reason 'Multiple important services show instability and should be reviewed together' -Finding $finding
                 } else {
                     $serviceSegment = ($finding.id -split ':', 2)[1]
                     $serviceName = $finding.title -replace ' appears unstable$', ''
-                    [PSCustomObject]@{ id = "confirm_${serviceSegment}_stability"; kind = 'confirm'; target = "service:$serviceName"; reason = 'Confirm whether the service instability is ongoing or user-impacting'; related_finding_ids = @($finding.id); severity = $finding.severity; confidence = $finding.confidence; finding_type = $finding.type }
+                    New-SystemTriageActionTemplate -Id "confirm_${serviceSegment}_stability" -Kind 'confirm' -Target "service:$serviceName" -ReasonCode 'service_instability_confirmation' -Reason 'Confirm whether the service instability is ongoing or user-impacting' -Finding $finding
                 }
             }
             'repeated_system_errors' {
                 $sourceSegment = ($finding.id -split ':', 2)[1]
-                [PSCustomObject]@{ id = "inspect_event_source_$sourceSegment"; kind = 'inspect'; target = "event_source:$sourceSegment"; reason = 'Review repeated recent errors from the dominant event source'; related_finding_ids = @($finding.id); severity = $finding.severity; confidence = $finding.confidence; finding_type = $finding.type }
+                New-SystemTriageActionTemplate -Id "inspect_event_source_$sourceSegment" -Kind 'inspect' -Target "event_source:$sourceSegment" -ReasonCode 'event_source_review' -Reason 'Review repeated recent errors from the dominant event source' -Finding $finding
             }
-            'abnormal_uptime_signal' { [PSCustomObject]@{ id = 'monitor_uptime_context'; kind = 'monitor'; target = 'uptime'; reason = 'Track whether current signals change as uptime normalizes'; related_finding_ids = @($finding.id); severity = $finding.severity; confidence = $finding.confidence; finding_type = $finding.type } }
+            'abnormal_uptime_signal' { New-SystemTriageActionTemplate -Id 'monitor_uptime_context' -Kind 'monitor' -Target 'uptime' -ReasonCode 'uptime_monitoring' -Reason 'Track whether current signals change as uptime normalizes' -Finding $finding }
         }
     }
 
-    $actions = @($actionTemplates | Sort-Object @{ Expression = { -$severityRank[$_.severity] } }, @{ Expression = { -[double]$_.confidence } }, @{ Expression = { -$actionabilityRank[$_.finding_type] } }, @{ Expression = { [string]$_.id } } | Select-Object -First 5 | ForEach-Object -Begin { $priority = 1 } -Process { [PSCustomObject]@{ id = $_.id; priority = $priority; kind = $_.kind; target = $_.target; reason = $_.reason; related_finding_ids = $_.related_finding_ids }; $priority++ })
+    $actions = @($actionTemplates | Sort-Object @{ Expression = { -$severityRank[$_.severity] } }, @{ Expression = { -[double]$_.confidence } }, @{ Expression = { -$actionabilityRank[$_.finding_type] } }, @{ Expression = { [string]$_.id } } | Select-Object -First 5 | ForEach-Object -Begin { $priority = 1 } -Process { [PSCustomObject]@{ id = $_.id; priority = $priority; kind = $_.kind; target = $_.target; reason_code = $_.reason_code; reason = $_.reason; related_finding_ids = $_.related_finding_ids }; $priority++ })
 
     $score = 0
     foreach ($finding in $sortedFindings) { switch ($finding.severity) { 'warning' { $score += 20 }; 'critical' { $score += 40 } } }
@@ -415,6 +437,11 @@ function Test-SystemTriageDocument {
         'src_services' = @{ tool = 'Get-ServiceStatus'; scope = 'important_services' }
         'src_events' = @{ tool = 'Get-EventLogEntries'; scope = 'last_60_minutes' }
         'src_storage' = @{ tool = 'Get-StorageStatus'; scope = 'fixed_volumes' }
+    }
+    $expectedActionTemplates = @{
+        'high_cpu' = @{ id = 'inspect_cpu_processes'; kind = 'inspect'; target = 'processes'; reason_code = 'cpu_consumers_review'; reason = 'Review the top CPU consumers to identify avoidable load' }
+        'high_memory' = @{ id = 'inspect_memory_top_processes'; kind = 'inspect'; target = 'processes'; reason_code = 'memory_consumers_review'; reason = 'Review the top memory consumers to identify avoidable pressure' }
+        'abnormal_uptime_signal' = @{ id = 'monitor_uptime_context'; kind = 'monitor'; target = 'uptime'; reason_code = 'uptime_monitoring'; reason = 'Track whether current signals change as uptime normalizes' }
     }
 
     $dupFindingIds = @($findingIds | Group-Object | Where-Object Count -gt 1 | Select-Object -ExpandProperty Name)
@@ -491,6 +518,64 @@ function Test-SystemTriageDocument {
                 if ($findingCategory -ne 'uptime') { $errors.Add("abnormal_uptime_signal category mismatch: $findingId") | Out-Null }
                 if ($findingId -ne 'abnormal_uptime_signal:global') { $errors.Add("abnormal_uptime_signal id mismatch: $findingId") | Out-Null }
             }
+        }
+    }
+
+    foreach ($action in @($Document.actions)) {
+        $relatedFindingIds = @($action.related_finding_ids | ForEach-Object { [string]$_ })
+        if ($relatedFindingIds.Count -ne 1) {
+            $errors.Add("Action must reference exactly one finding in v1: $([string]$action.id)") | Out-Null
+            continue
+        }
+
+        $finding = $Document.findings | Where-Object { [string]$_.id -eq $relatedFindingIds[0] } | Select-Object -First 1
+        if (-not $finding) {
+            continue
+        }
+
+        $expectedTemplate = $null
+        switch ([string]$finding.type) {
+            'repeated_system_errors' {
+                $sourceSegment = ([string]$finding.id -split ':', 2)[1]
+                $expectedTemplate = @{ id = "inspect_event_source_$sourceSegment"; kind = 'inspect'; target = "event_source:$sourceSegment"; reason_code = 'event_source_review'; reason = 'Review repeated recent errors from the dominant event source' }
+            }
+            'low_disk' {
+                $volume = ([string]$finding.id -split ':', 2)[1].ToUpperInvariant()
+                $expectedTemplate = @{ id = "inspect_volume_$volume"; kind = 'inspect'; target = "volume:$volume"; reason_code = 'volume_consumers_review'; reason = 'Review large consumers on the affected volume before space becomes critical' }
+            }
+            'unstable_service' {
+                if ([string]$finding.id -eq 'unstable_service:multiple') {
+                    $expectedTemplate = @{ id = 'escalate_service_instability'; kind = 'escalate'; target = 'services'; reason_code = 'service_instability_escalation'; reason = 'Multiple important services show instability and should be reviewed together' }
+                } else {
+                    $serviceSegment = ([string]$finding.id -split ':', 2)[1]
+                    $serviceName = ([string]$finding.title) -replace ' appears unstable$', ''
+                    $expectedTemplate = @{ id = "confirm_${serviceSegment}_stability"; kind = 'confirm'; target = "service:$serviceName"; reason_code = 'service_instability_confirmation'; reason = 'Confirm whether the service instability is ongoing or user-impacting' }
+                }
+            }
+            default {
+                $expectedTemplate = $expectedActionTemplates[[string]$finding.type]
+            }
+        }
+
+        if ($null -eq $expectedTemplate) {
+            $errors.Add("No action template defined for finding type $([string]$finding.type)") | Out-Null
+            continue
+        }
+
+        if ([string]$action.id -ne [string]$expectedTemplate.id) {
+            $errors.Add("Action id mismatch for related finding $([string]$finding.id)") | Out-Null
+        }
+        if ([string]$action.kind -ne [string]$expectedTemplate.kind) {
+            $errors.Add("Action kind mismatch for related finding $([string]$finding.id)") | Out-Null
+        }
+        if ([string]$action.target -ne [string]$expectedTemplate.target) {
+            $errors.Add("Action target mismatch for related finding $([string]$finding.id)") | Out-Null
+        }
+        if ([string]$action.reason_code -ne [string]$expectedTemplate.reason_code) {
+            $errors.Add("Action reason_code mismatch for related finding $([string]$finding.id)") | Out-Null
+        }
+        if ([string]$action.reason -ne [string]$expectedTemplate.reason) {
+            $errors.Add("Action reason mismatch for related finding $([string]$finding.id)") | Out-Null
         }
     }
 

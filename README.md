@@ -198,6 +198,7 @@ Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -Sk
 Highlights:
 - deterministic `Invoke-SystemTriage` and `Invoke-CleanupSummary` reducers are now part of the exported module surface
 - flagship health-check and cleanup prompts now prefer the deterministic local tools before broader provider-led exploration
+- `system_triage` actions now include stable machine-readable `reason_code` values alongside human-readable `reason` text
 - cleanup recommendations now expose ranked candidates plus `review_only` versus `execution_allowed` states
 - delete safety is stricter around permanent intent, sensitive targets, and evidence-backed exact-path execution
 - provider translation and loop behavior have stronger offline regression coverage, with live provider smoke kept opt-in
