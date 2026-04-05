@@ -1,8 +1,8 @@
 # PowerClaw
 
-**PowerShell Command-Line Agentic Workbench** &nbsp;·&nbsp; [🌐 spinchange.github.io/PowerClaw](https://spinchange.github.io/PowerClaw/)
+**Windows Machine Assistant** &nbsp;·&nbsp; [🌐 spinchange.github.io/PowerClaw](https://spinchange.github.io/PowerClaw/)
 
-A Windows-native operations copilot for people who already live in PowerShell. You describe the task in plain English, PowerClaw picks from approved tools, runs the right Windows-native action, and returns a readable answer.
+A Windows-native machine assistant for people who already live in PowerShell. You describe the task in plain English, PowerClaw picks from approved tools, runs the right Windows-native action, and returns a readable answer.
 
 The model never generates raw PowerShell. It picks from a registry of approved, auditable tools you control.
 
@@ -16,7 +16,7 @@ PowerClaw is for:
 
 - Windows power users who want faster local diagnostics without giving a model unrestricted shell access
 - solo operators and technical builders who want plain-English access to services, logs, files, storage, and network state
-- people who value inspectability, confirmation on writes, and a first-class Windows plus web investigation surface
+- people who value inspectability, confirmation on writes, and a Windows-native investigation surface that can optionally extend to the web
 
 If you want a general-purpose cross-platform agent shell, this repo is intentionally narrower than that.
 
@@ -26,15 +26,33 @@ If you want a general-purpose cross-platform agent shell, this repo is intention
    Ask for system health, CPU pressure, service failures, reboot timing, or recent event log warnings. PowerClaw now prefers a deterministic bounded system triage first, then follows up with narrower tools only when needed.
 2. **File and storage cleanup**
    Find large files, inspect Downloads, locate old installers, and confirm before delete actions. PowerClaw now prefers a deterministic bounded cleanup summary first, then follows up only when the ranked candidates still look ambiguous. Cleanup answers call out what was found, what to review next, and which surfaced items are review-only versus execution-allowed after confirmation.
-3. **Read and investigate**
-   Summarize a webpage, inspect a local config or log, and connect what you read to system state. These prompts now default to a short evidence-backed summary instead of wandering through long multi-file or multi-page chains.
+3. **Read and investigate local evidence**
+   Inspect a local config or log, search your local knowledge directories, summarize recent changes, and connect what you read to current system state. These prompts now default to a short evidence-backed summary instead of wandering through long multi-file chains. Webpage reading remains available as a later opt-in extension when local evidence is not enough.
 
 ## Requirements
 
 - PowerShell 7+
-- .NET SDK (for the one-time `Fetch-WebPage` Playwright host setup)
-- Anthropic or OpenAI API key
 - Windows 10/11
+
+For real provider-backed runs, you also need an Anthropic or OpenAI API key.
+
+## First-run options
+
+PowerClaw has two valid first-run paths:
+
+1. **Demo mode, no API key**
+   Use `-UseStub` to see the real tool-routing shape, answer format, and safety flow without setting up a provider first.
+2. **Real mode, with API key**
+   Configure Anthropic or OpenAI and run the same workflows against a live model.
+
+If you want the fastest first win, start with demo mode:
+
+```powershell
+Import-Module .\PowerClaw.psd1
+powerclaw -UseStub "What's eating my CPU?"
+powerclaw -UseStub "Find the 10 biggest files in Downloads"
+powerclaw -UseStub "Read config.json and explain my settings"
+```
 
 ## Setup
 
@@ -58,6 +76,8 @@ Copy-Item .\config.openai.example.json .\config.json
 ```
 
 Edit `config.json` for your provider, model, and API key env var.
+The starter config also includes `local_knowledge.directories`, which defaults to
+`%USERPROFILE%\Documents` and can be expanded with additional local directories.
 
 **3. Set your API key**
 ```powershell
@@ -83,29 +103,46 @@ Import-Module .\PowerClaw.psd1
 
 This exports both `Invoke-PowerClaw` and the ergonomic alias `powerclaw`.
 
-**5. Install the web runtime**
-`Fetch-WebPage` is part of the default workbench surface, so install its runtime
-with the supported one-command bootstrap:
+**5. Validate setup**
+```powershell
+Test-PowerClawSetup
+```
+
+**6. Run first prompts**
+```powershell
+powerclaw "What's eating my CPU?"
+powerclaw "Read config.json and explain my settings"
+powerclaw "What changed on this machine in the last 24 hours?"
+powerclaw "Search my notes for PowerClaw setup decisions"
+```
+
+## Optional later add-on: webpage lookup
+
+If you sometimes need a public webpage after you have already worked through the
+local machine evidence, you can opt into `Fetch-WebPage` and install its runtime.
+It is not part of the default manifest, the minimum setup path, or the flagship
+workflows.
+
+Requirements for this optional capability:
+
+- .NET SDK
+
+Enable the tool by adding `Fetch-WebPage` to `approved_tools` in
+`tools-manifest.json`.
+
+Setup:
 
 ```powershell
 pwsh -File .\Install-PowerClawWebRuntime.ps1
 ```
 
 This bootstraps the Playwright host project, builds it, and installs Chromium
-for the default `Fetch-WebPage` tool.
+for `Fetch-WebPage`.
 
-If you want the underlying steps or a custom path, the installer script remains
-small and readable.
+After that, webpage prompts are available as a secondary evidence source:
 
-**6. Validate setup**
 ```powershell
-Test-PowerClawSetup
-```
-
-**7. Run first prompts**
-```powershell
-powerclaw "What's eating my CPU?"
-powerclaw "Summarize https://news.ycombinator.com"
+powerclaw "Read https://learn.microsoft.com/powershell/ and compare the relevant guidance to my local config"
 ```
 
 ## Optional: Persistent local install
@@ -128,7 +165,7 @@ Then make sure:
 After that, `powerclaw` works as a real shell command in a new PowerShell session:
 
 ```powershell
-# Run the installed web-runtime bootstrap once from the installed module directory
+# If you want webpage investigation, run the installed web-runtime bootstrap once from the installed module directory
 powerclaw "What's eating my CPU?"
 ```
 
@@ -145,14 +182,18 @@ Invoke-SystemTriage | ConvertTo-Json -Depth 10
 powerclaw -Plan "Find the 10 biggest files in Downloads"
 Invoke-CleanupSummary -Scope "$env:USERPROFILE\Downloads" | ConvertTo-Json -Depth 10
 
-# Workflow 3: read and investigate
+# Workflow 3: read and investigate evidence
 powerclaw "Read config.json and explain my settings"
-powerclaw "Summarize https://learn.microsoft.com/powershell/"
+powerclaw "Search my notes for local setup decisions"
+Invoke-RecentChangesSummary -HoursBack 24 | ConvertTo-Json -Depth 10
 
-# Safe testing without an API key
+# Optional later add-on when local evidence is not enough
+powerclaw "Read https://learn.microsoft.com/powershell/ and compare the guidance to my local config"
+
+# Demo mode without an API key
 powerclaw -UseStub "What's eating my CPU?"
 powerclaw -UseStub "Find the 10 biggest files in Downloads"
-powerclaw -UseStub "Summarize https://news.ycombinator.com"
+powerclaw -UseStub "Read config.json and explain my settings"
 
 # Inspect the raw model traffic
 powerclaw -Verbose "What's eating my CPU?"
@@ -170,16 +211,17 @@ Run the repo test suite with:
 pwsh -File .\Run-Tests.ps1
 ```
 
-Run the opt-in live provider smoke check only when you intentionally want a real
-network roundtrip:
+Run the opt-in live provider smoke through the same supported entrypoint when you
+intentionally want a real network roundtrip:
 
 ```powershell
 # Uses provider/model/api_key_env from config.json
-pwsh -File .\tests\Test-LiveProviderSmoke.ps1
+pwsh -File .\Run-Tests.ps1 -IncludeLiveProviderSmoke
 
 # Or verify both providers explicitly
-pwsh -File .\tests\Test-LiveProviderSmoke.ps1 `
-  -Provider both `
+pwsh -File .\Run-Tests.ps1 `
+  -IncludeLiveProviderSmoke `
+  -LiveProvider both `
   -ClaudeModel claude-sonnet-4-20250514 `
   -OpenAiModel gpt-4.1-mini
 ```
@@ -193,7 +235,8 @@ Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force -Sk
 ## Current release notes
 
 `v0.2.0` is the current tag candidate for the first release that treats both
-`system_triage` and `cleanup_summary` as formal local JSON document surfaces.
+`system_triage` and `cleanup_summary` as formal local JSON document surfaces
+inside a sharper Windows machine-operator product story.
 
 Highlights:
 - deterministic `Invoke-SystemTriage` and `Invoke-CleanupSummary` reducers are now part of the exported module surface
@@ -213,6 +256,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the release entry and [docs/known-issues.md
 |------|----------|-------------|
 | `Get-SystemTriage` | SystemInfo | Deterministic bounded workstation-health triage across system, process, service, event, and storage signals |
 | `Get-CleanupSummary` | Filesystem | Deterministic bounded cleanup summary with ranked candidates, candidate states, and the next safe action |
+| `Get-RecentChangesSummary` | SystemInfo | Deterministic bounded summary of recent file changes and recent system events |
 | `Get-SystemSummary` | SystemInfo | CPU, RAM, uptime, top processes |
 | `Get-TopProcesses` | SystemInfo | Processes sorted by CPU or memory |
 | `Get-EventLogEntries` | SystemInfo | Windows event log errors and warnings |
@@ -220,16 +264,20 @@ See [CHANGELOG.md](CHANGELOG.md) for the release entry and [docs/known-issues.md
 | `Get-NetworkStatus` | Network | Interfaces, connections, external IP |
 | `Get-NetworkUsage` | Network | Per-process and connection-level network usage |
 | `Get-StorageStatus` | Filesystem | Disk usage and largest folders |
-| `Get-DirectoryListing` | Filesystem | List files in a directory |
-| `Search-Files` | Filesystem | Windows Search index queries |
+| `Get-DirectoryListing` | Filesystem | List files in a directory, with optional modified-time filtering |
+| `Search-Files` | Filesystem | Windows Search index queries, including modified-time windows |
+| `Search-LocalKnowledge` | Filesystem | Searches configured local knowledge directories, defaulting to Documents, for notes, docs, logs, and other supporting evidence files |
 | `Read-FileContent` | Filesystem | Read and reason about any file |
 | `Remove-Files` | Filesystem | Delete specific full-path files, with protected-root blocks, a default batch ceiling, single-file permanent delete, and evidence-backed target requirements |
-| `Fetch-WebPage` | Web | Fetch readable webpage text from static or JavaScript-rendered pages |
 
-`Fetch-WebPage` is part of the default workbench surface, but it depends on the
-one-time runtime install handled by `Install-PowerClawWebRuntime.ps1`. Personal note-search tools such
+`Fetch-WebPage` remains available in the repo as an optional secondary
+web-evidence capability, but it is no longer approved in the default manifest.
+To use it, add it to `approved_tools` and install its runtime with
+`Install-PowerClawWebRuntime.ps1`. Personal note-search tools such
 as `Search-MyJoNotes` and `Search-MnVault` now live under `overlays\personal\`
-so the main repo stays portable across machines.
+so the main repo stays portable across machines. `Search-LocalKnowledge`
+supports the operator workflows by letting the model pull in local notes,
+configs, docs, and logs when they materially clarify the state of the machine.
 
 To enable the personal overlay on one machine, copy the desired tool files from
 `overlays\personal\tools\` into your active `tools\` directory and add their
@@ -299,7 +347,7 @@ logging.
 
 ## Configuration
 
-`config.json` — model, token limits, max steps, API key env var name.
+`config.json` — model, token limits, max steps, API key env var name, and `local_knowledge.directories` for configurable local context search.
 
 `config.claude.example.json` / `config.openai.example.json` — clean starting points for each supported provider.
 
@@ -309,7 +357,7 @@ logging.
 
 `Install-PowerClawOverlay.ps1` — helper to install an overlay into an active repo or installed module tree.
 
-`Install-PowerClawWebRuntime.ps1` — supported one-command installer for the default `Fetch-WebPage` runtime.
+`Install-PowerClawWebRuntime.ps1` — supported one-command installer for the optional `Fetch-WebPage` runtime.
 
 ---
 

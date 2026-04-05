@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PowerClaw — PowerShell Agentic Workbench</title>
+<title>PowerClaw — Windows Machine Assistant</title>
 <style>
   :root {
     --ps-blue:    #012456;
@@ -517,8 +517,8 @@
   <div class="hero-badge">PowerShell · Windows-Native · Tool Registry Safety</div>
   <h1><span class="ps">Power</span><span class="claw">Claw</span></h1>
   <p class="hero-sub">
-    Built for Windows power users, solo operators, and technical builders who want local automation without unrestricted shell generation.<br>
-    <strong>Describe the task. PowerClaw previews or runs an approved tool chain, then returns an operator-style answer.</strong>
+    Built for Windows power users, solo operators, and technical builders who want machine answers without unrestricted shell generation.<br>
+    <strong>Describe the issue. PowerClaw previews or runs an approved tool chain, then returns an operator-style answer.</strong>
   </p>
   <ul class="hero-points">
     <li><strong>Safe by design.</strong> PowerClaw does not generate arbitrary shell commands.</li>
@@ -546,10 +546,10 @@
     <div class="terminal-body" id="terminal-body">
       <div><span class="t-prompt">PS C:\Users\Chris\PowerClaw&gt;</span> <span class="t-cmd">powerclaw <span style="color:var(--ps-green)">"Give me a full system health check"</span></span></div>
       <br>
-      <div><span class="t-cyan">PowerClaw v0.3</span></div>
+      <div><span class="t-cyan">PowerClaw v0.2.0</span></div>
       <div><span class="t-dim">Prompt: Give me a full system health check</span></div>
       <br>
-      <div><span class="t-dim">[PowerClaw] Registered 12 tools: Fetch-WebPage, Get-EventLogEntries, Get-NetworkStatus...</span></div>
+      <div><span class="t-dim">[PowerClaw] Registered 15 tools: Search-LocalKnowledge, Get-EventLogEntries, Get-NetworkStatus...</span></div>
       <br>
       <div><span class="t-dim">[Step 1/8]</span></div>
       <div><span class="t-cyan">[Executing]</span> Get-NetworkStatus</div>
@@ -577,7 +577,7 @@
 <section>
   <div class="section-label"># Why</div>
   <h2>Not another shell wrapper</h2>
-  <p class="section-sub">PowerClaw is for Windows operators who want faster local work without handing a model free-form command execution.</p>
+  <p class="section-sub">PowerClaw is for Windows operators who want faster machine diagnosis and cleanup without handing a model free-form command execution.</p>
 
   <div class="story-grid">
     <div class="story-card">
@@ -646,8 +646,8 @@
 <!-- Tools -->
 <section id="tools">
   <div class="section-label"># Tools</div>
-  <h2>12 default tools in the workbench</h2>
-  <p class="section-sub">The default workbench covers machine health, files, networking, local reads, and webpage investigation. Personal overlays stay outside the default onboarding path.</p>
+  <h2>Selected tools in the workbench</h2>
+  <p class="section-sub">The default workbench covers machine health, files, networking, local reads, and local knowledge search. Personal overlays stay outside the default onboarding path.</p>
 
   <div class="tools-grid">
 
@@ -744,9 +744,9 @@
     <div class="tool">
       <div class="tool-risk risk-read">ReadOnly</div>
       <div class="tool-info">
-        <h3>Fetch-WebPage</h3>
-        <p>Fetch readable text from static or JavaScript-rendered pages for research, docs, and live web investigation.</p>
-        <div class="tool-cat">Web</div>
+        <h3>Search-LocalKnowledge</h3>
+        <p>Search configured local knowledge directories for notes, docs, journals, and other text files. Defaults to Documents.</p>
+        <div class="tool-cat">Filesystem</div>
       </div>
     </div>
 
@@ -762,7 +762,7 @@
   </div>
 
   <div class="tools-note">
-    <strong>Runtime note:</strong> <code>Fetch-WebPage</code> is part of the default workbench surface, but it needs a one-time Playwright browser setup during onboarding. Machine-specific note-search tools still live under <code>overlays\personal\</code> instead of the main portable tool directory.
+    <strong>Optional later add-on:</strong> <code>Fetch-WebPage</code> stays in the repo, but it is opt-in in the manifest, requires a one-time Playwright browser setup, and is meant as a secondary evidence source after local machine evidence. Machine-specific note-search tools still live under <code>overlays\personal\</code> instead of the main portable tool directory.
   </div>
 </section>
 
@@ -772,7 +772,7 @@
 <section id="install">
   <div class="section-label"># Setup</div>
   <h2>Get started</h2>
-  <p class="section-sub">Requires PowerShell 7+, a .NET SDK for the web host setup, and an Anthropic or OpenAI API key. The onboarding flow below matches the repo README.</p>
+  <p class="section-sub">Requires PowerShell 7+. You can start in demo mode with <code>-UseStub</code>, or configure an Anthropic or OpenAI API key for live runs. Webpage lookup stays out of the default path and is only a later add-on.</p>
 
   <div class="install-steps">
 
@@ -802,6 +802,16 @@ Copy-Item .\config.openai.example.json .\config.json</pre>
     <div class="step">
       <div class="step-num">3</div>
       <div class="step-content">
+        <h3>Optional fast first win: demo mode</h3>
+        <pre>Import-Module .\PowerClaw.psd1
+powerclaw -UseStub <span class="string">"What's eating my CPU?"</span>
+powerclaw -UseStub <span class="string">"Find the 10 biggest files in Downloads"</span></pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
         <h3>Set your API key</h3>
         <pre><span class="comment"># Set for this session</span>
 $env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
@@ -812,19 +822,10 @@ $env:CLAUDE_API_KEY = <span class="string">'sk-ant-...'</span>
     </div>
 
     <div class="step">
-      <div class="step-num">4</div>
+      <div class="step-num">5</div>
       <div class="step-content">
         <h3>Import the module</h3>
         <pre>Import-Module .\PowerClaw.psd1</pre>
-      </div>
-    </div>
-
-    <div class="step">
-      <div class="step-num">5</div>
-      <div class="step-content">
-        <h3>Install the web runtime</h3>
-        <pre><span class="comment"># One-command bootstrap for the default Fetch-WebPage tool</span>
-pwsh -File .\Install-PowerClawWebRuntime.ps1</pre>
       </div>
     </div>
 
@@ -841,12 +842,23 @@ pwsh -File .\Install-PowerClawWebRuntime.ps1</pre>
       <div class="step-content">
         <h3>Run first prompts</h3>
         <pre>powerclaw <span class="string">"What's eating my CPU?"</span>
-powerclaw <span class="string">"Summarize https://news.ycombinator.com"</span></pre>
+powerclaw <span class="string">"Read config.json and explain my settings"</span>
+powerclaw <span class="string">"Search my notes for PowerClaw setup decisions"</span></pre>
       </div>
     </div>
 
     <div class="step">
       <div class="step-num">8</div>
+      <div class="step-content">
+        <h3>Optional later add-on: enable webpage lookup</h3>
+        <pre><span class="comment"># Only if local machine evidence is not enough:</span>
+<span class="comment"># add Fetch-WebPage to approved_tools, then install its runtime</span>
+pwsh -File .\Install-PowerClawWebRuntime.ps1</pre>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="step-num">9</div>
       <div class="step-content">
         <h3>Optional: install a real shell command</h3>
         <pre>pwsh -File .\Install-PowerClaw.ps1 `
@@ -889,8 +901,8 @@ powerclaw <span class="string">"Summarize https://news.ycombinator.com"</span></
       <p><code>-Plan</code> shows a short intended tool chain before execution. Health checks and cleanup prompts can preview multiple planned steps instead of only the first tool.</p>
     </div>
     <div class="trust-card">
-      <h3>Stub mode and logs</h3>
-      <p><code>-UseStub</code> gives a believable no-key demo path for the flagship workflows, and each run remains inspectable for debugging and review.</p>
+      <h3>Demo mode and logs</h3>
+      <p><code>-UseStub</code> is the explicit no-key demo path for the flagship workflows, and each run remains inspectable for debugging and review.</p>
     </div>
   </div>
 </section>
@@ -917,14 +929,14 @@ powerclaw <span class="string">"Summarize https://news.ycombinator.com"</span></
     </div>
 
     <div class="story-card">
-      <h3>3. Read and investigate</h3>
-      <p><strong>Use PowerClaw when the answer sits across a webpage, config, or log file.</strong> Fetch readable page text as a first-class tool, inspect local files, and get a plain-English summary with the relevant implications.</p>
+      <h3>3. Read and investigate local evidence</h3>
+      <p><strong>Use PowerClaw when the answer sits across a config, log, note, or local document set.</strong> Inspect local files, search configured knowledge directories, and pull supporting evidence into the machine diagnosis when it materially changes the answer. Web fetch remains available only as a later opt-in source when the local machine evidence is not enough.</p>
       <pre>powerclaw <span class="string">"Read config.json and explain my settings"</span></pre>
     </div>
   </div>
 
   <div class="tools-note">
-    <strong>Useful flags:</strong> <code>-Plan</code> previews a short chain, <code>-DryRun</code> skips write tools, <code>-Verbose</code> exposes raw API traffic, and <code>-UseStub</code> demos the loop without an API key.
+    <strong>Useful flags:</strong> <code>-Plan</code> previews a short chain, <code>-DryRun</code> skips write tools, <code>-Verbose</code> exposes raw API traffic, and <code>-UseStub</code> runs an explicit demo path without an API key.
   </div>
 </section>
 
