@@ -5,8 +5,8 @@ best ordering of useful next improvements in service of the product vision.
 
 ## Product vision
 
-PowerClaw should become the safest and most useful Windows-native command-line
-workbench for personal machine operations.
+PowerClaw should become the safest and most useful Windows-native machine
+assistant for personal machine operations.
 
 The intended product shape is:
 - natural-language control over real Windows tasks
@@ -14,6 +14,10 @@ The intended product shape is:
 - high trust through inspectability, confirmation, and constrained execution
 - fast path from clone to first useful result
 - easy extension through drop-in tools
+
+Internally, the repo can still evolve as a PowerShell workbench. Externally, the
+product story should stay centered on operator outcomes rather than on the
+architecture itself.
 
 ## Product pillars
 
@@ -44,28 +48,144 @@ Adding or enabling tools should be straightforward without weakening safety.
   policy checks where practical.
 - Improve real provider-backed answer consistency for flagship workflows,
   especially multi-tool health-check, cleanup, and investigation prompts.
-- Decide whether `loop_log` should expand beyond the current v1 event contract
-  into a richer execution trace or stay intentionally narrow.
 - Keep live provider verification easy to run while preserving the fast offline
   default suite, and keep provider account-state failures diagnosable when a key,
   quota, or billing issue blocks verification.
 
-### Priority 2: keep setup and onboarding sharp
+### Priority 2: deepen object-model leverage
+
+PowerClaw should get more value from the PowerShell object model before it adds
+many more surface-area tools. The highest-leverage path is to standardize how
+approved tools return, filter, correlate, rank, and reduce structured objects
+so more user questions can be answered locally and deterministically.
+
+Scope:
+- Prefer object-first tool outputs and reducers over preformatted text so the
+  loop can sort, filter, group, compare, and truncate data predictably.
+- Treat bounded reducer documents as layered summaries built from object-first
+  tools, not as a reason to erase access to direct raw evidence when the user
+  clearly needs the underlying objects or a narrower follow-up read.
+- Standardize a small shared query vocabulary where it fits the underlying data,
+  such as `Scope`, `Limit`, `SortBy`, temporal bounds, and threshold-style
+  filters.
+- Add more deterministic bounded reducers built from existing tool outputs
+  instead of answering every repeated operator question with a new bespoke tool.
+- Lean into cross-tool correlation where stable keys already exist, such as PID,
+  service name, path, source, and timestamp.
+- Keep the schemas strict and the reducers bounded so object leverage improves
+  trust and repeatability instead of widening the execution model.
+
+Non-goals:
+- Do not turn PowerClaw into a generic query engine over arbitrary host data.
+- Do not add broad abstraction layers that make simple tools harder to author or
+  reason about.
+- Do not replace useful direct tools with opaque reducers when the user clearly
+  needs the raw underlying objects.
+- Do not optimize for theoretical composability at the cost of simple offline
+  tests and inspectable behavior.
+
+Candidate leverage points:
+- Add reducer-style workflows for repeated operator questions such as recent
+  changes, failed-service summaries, event-source summaries, and download or
+  storage hygiene.
+- Add lightweight snapshot-and-diff flows where object identity is stable enough
+  to compare before-versus-after states safely.
+- Improve local ranking and pre-aggregation so the model sees smaller,
+  higher-signal evidence sets instead of raw long lists.
+- Standardize evidence objects versus summary documents so answers stay concise
+  without losing inspectability.
+
+Why this matters:
+- It turns PowerShell's object model into a real product advantage instead of a
+  hidden implementation detail.
+- It lets PowerClaw answer more useful questions with fewer tools and less model
+  improvisation.
+- It strengthens determinism, testing, and safety across multiple workflows at
+  once.
+
+### Priority 3: make time-bounded object queries first-class
+
+PowerClaw already exposes timestamps, relative windows, and structured objects
+in several places. The next useful step is not a generic temporal query engine.
+It is a small, consistent time-filter surface that lets the user ask questions
+like "what changed in the last 24 hours?" and get object-shaped results from
+approved tools.
+
+Scope:
+- Standardize read-only temporal parameters where they fit the underlying data:
+  `HoursBack` for recent-event style queries, and `After` / `Before` for
+  timestamped file or record queries.
+- Prefer object-preserving filters over text shaping so tools continue to return
+  sortable, composable PowerShell objects instead of preformatted summaries.
+- Add deterministic reducers where the time window itself is the product value,
+  such as recent file churn, recent system changes, and bounded event summaries.
+- Keep schemas strict and explicit so models can only request supported temporal
+  arguments and cannot invent ad hoc date fields.
+- Preserve offline regression coverage for temporal translation, default windows,
+  inclusive boundary behavior, and empty-result handling.
+
+Non-goals:
+- Do not add a general-purpose time-series database or analytics engine.
+- Do not introduce background collection, scheduled sampling, or persistent
+  historical retention by default.
+- Do not let temporal support become a loophole for arbitrary query generation
+  outside the approved tool contract.
+- Do not force every tool to support time filters when the underlying source
+  does not expose a meaningful timestamp.
+
+Candidate tools and surfaces:
+- Extend `Search-Files` with explicit `After` / `Before` filtering on
+  `System.DateModified`, so file questions can be answered as real object
+  queries instead of sort-only approximations.
+- Extend `Get-DirectoryListing` with optional `After` / `Before` filters on
+  `LastWriteTime` for bounded local directory inspection.
+- Keep `Get-EventLogEntries` as the pattern for relative-window event queries,
+  and consider adding `StartTime` / `EndTime` only if the schema remains simple.
+- Add a deterministic reducer for "recent changes" style prompts, likely as a
+  bounded document built from existing file and event surfaces rather than a
+  broad new execution loop.
+- Consider temporal views inside `Get-SystemTriage` or a sibling reducer for
+  "what changed recently" prompts, but only if the output remains evidence-
+  backed and bounded.
+
+Why this matters:
+- It leans into PowerShell's object-oriented strengths instead of flattening
+  everything into strings.
+- It improves common operator questions without weakening the constrained tool
+  model.
+- It creates a clearer Windows-native moat around event, filesystem, and local
+  diagnostic workflows.
+
+### Priority 4: keep setup and onboarding sharp
 
 - Keep the README and website aligned around the same onboarding sequence and
   top workflows.
 - Preserve Anthropic and OpenAI as equally first-class setup paths.
-- Treat `Fetch-WebPage` as part of the first-class workbench surface and make
-  its one-time runtime setup explicit in onboarding instead of hiding it behind
-  optional positioning.
+- Make demo-mode onboarding explicit so a no-key first win is part of the
+  supported product story.
+- Keep native local workflows as the default path to first value.
+- Make heavier web-investigation runtime setup explicit and optional instead of
+  part of the minimum onboarding path.
 
-### Priority 3: strengthen the extensibility story
+### Priority 5: deepen the Windows-operator moat
+
+- Strengthen event-log, service, recent-change, and failure-correlation flows so
+  PowerClaw feels meaningfully better on Windows than generic terminal agents.
+- Improve cleanup intelligence around Windows-specific junk patterns, remnants,
+  and low-risk versus review-only distinctions.
+- Keep local knowledge search as a supporting evidence lane for operator
+  questions, not as the primary product identity.
+
+### Priority 6: strengthen the extensibility story
 
 - Keep expanding contract tests for tool metadata parsing, registration, schema
   generation, and overlay activation behavior.
 - Keep overlays lightweight and explicit so machine-specific tools do not drift
   back into the main portable surface.
 - Document the drop-in tool authoring path and overlay activation path clearly.
+- Make configurable local knowledge search a near-term core extension path by
+  shipping a generic tool that defaults to Documents and can be expanded with
+  additional directories from `config.json`.
 
 ## Recently completed
 
@@ -89,8 +209,12 @@ Adding or enabling tools should be straightforward without weakening safety.
   fields, explicit event/outcome pairs, and a formal schema.
 - Install and setup ergonomics improved with provider-specific example configs,
   clearer validation guidance, and better installed-module defaults.
-- `Fetch-WebPage` returned to the default workbench surface, and onboarding now
-  treats its Playwright setup as a first-class step.
+- `Fetch-WebPage` remains a supported repo capability, while the default product
+  direction is shifting toward native-local-first onboarding with web runtime
+  setup positioned as an explicit optional extension.
+- `Search-LocalKnowledge` is now part of the default approved surface, using
+  `config.json` directories and a Documents default to bring generic local
+  context search into the portable core.
 - Personal note-search tools moved into an optional overlay, and the repo now
   includes an overlay install helper for one-machine activation.
 - Tool-contract regression coverage now includes metadata parsing, defaults,
@@ -119,6 +243,11 @@ Adding or enabling tools should be straightforward without weakening safety.
 
 ## Longer-term bets
 
+- Add a terminal-first interactive runner on top of the current loop once the
+  flagship one-turn workflows are more consistently reliable. The intended shape
+  is a narrow `powerclaw chat` session layer with transcript persistence,
+  bounded active context, slash commands, and unchanged tool-registry safety.
+  See [terminal-runner-architecture.md](terminal-runner-architecture.md).
 - Add a richer planning and execution trace if PowerClaw becomes a more active
   workbench instead of a mostly single-request operator.
 - Explore deeper Windows-native integrations that strengthen the product moat:
