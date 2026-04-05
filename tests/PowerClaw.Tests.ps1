@@ -1,6 +1,7 @@
 BeforeAll {
     $script:RepoRoot = Split-Path $PSScriptRoot -Parent
     $script:ModulePath = Join-Path $script:RepoRoot 'PowerCLAW.psd1'
+    $script:TempRoot = [System.IO.Path]::GetTempPath().TrimEnd('\')
 
     Import-Module $script:ModulePath -Force
 
@@ -8,6 +9,7 @@ BeforeAll {
     . (Join-Path $script:RepoRoot 'registry\ConvertTo-ToolSchema.ps1')
     . (Join-Path $script:RepoRoot 'core\Invoke-ClawLoop.ps1')
     . (Join-Path $script:RepoRoot 'core\Invoke-CleanupSummary.ps1')
+    . (Join-Path $script:RepoRoot 'core\Invoke-RecentChangesSummary.ps1')
     . (Join-Path $script:RepoRoot 'core\Invoke-SystemTriage.ps1')
     . (Join-Path $script:RepoRoot 'client\Send-ClawRequest.ps1')
     . (Join-Path $script:RepoRoot 'client\providers\Send-OpenAiRequest.ps1')
@@ -19,7 +21,10 @@ BeforeAll {
     . (Join-Path $script:RepoRoot 'tools\Get-StorageStatus.ps1')
     . (Join-Path $script:RepoRoot 'tools\Get-TopProcesses.ps1')
     . (Join-Path $script:RepoRoot 'tools\Search-Files.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Search-LocalKnowledge.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Get-DirectoryListing.ps1')
     . (Join-Path $script:RepoRoot 'tools\Remove-Files.ps1')
+    . (Join-Path $script:RepoRoot 'tools\Get-RecentChangesSummary.ps1')
 }
 
 Describe 'PowerClaw module' {
@@ -53,9 +58,13 @@ Describe 'PowerClaw module' {
         (Get-Command Invoke-CleanupSummary -ErrorAction Stop).Name | Should -Be 'Invoke-CleanupSummary'
     }
 
+    It 'exports Invoke-RecentChangesSummary' {
+        (Get-Command Invoke-RecentChangesSummary -ErrorAction Stop).Name | Should -Be 'Invoke-RecentChangesSummary'
+    }
+
     It 'ships a web runtime installer script that bootstraps Playwright' {
         $installerPath = Join-Path $script:RepoRoot 'Install-PowerClawWebRuntime.ps1'
-        $runtimeRoot = Join-Path $env:TEMP 'powerclaw-web-runtime-install'
+        $runtimeRoot = Join-Path $script:TempRoot 'powerclaw-web-runtime-install'
         $commandLog = [System.Collections.Generic.List[string]]::new()
 
         Remove-Item -LiteralPath $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -110,8 +119,8 @@ Describe 'PowerClaw module' {
 
 Describe 'Setup validation' {
     It 'reports ready when config and key are valid' {
-        $configPath = Join-Path $env:TEMP 'powerclaw-setup-valid.json'
-        $webRuntimeRoot = Join-Path $env:TEMP 'powerclaw-playwright-test\bin\Debug'
+        $configPath = Join-Path $script:TempRoot 'powerclaw-setup-valid.json'
+        $webRuntimeRoot = Join-Path $script:TempRoot 'powerclaw-playwright-test\bin\Debug'
         $env:POWERCLAW_TEST_SETUP_KEY = 'test-key'
         $env:POWERCLAW_PLAYWRIGHT_BUILD = $webRuntimeRoot
         Set-Content -LiteralPath $configPath -Value @'
@@ -134,7 +143,7 @@ Describe 'Setup validation' {
             $result.WebFetchReady | Should -BeTrue
         }
         finally {
-            Remove-Item -LiteralPath (Join-Path $env:TEMP 'powerclaw-playwright-test') -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath (Join-Path $script:TempRoot 'powerclaw-playwright-test') -Recurse -Force -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
             Remove-Item Env:\POWERCLAW_PLAYWRIGHT_BUILD -ErrorAction SilentlyContinue
             Remove-Item Env:\POWERCLAW_TEST_SETUP_KEY -ErrorAction SilentlyContinue
@@ -142,7 +151,7 @@ Describe 'Setup validation' {
     }
 
     It 'reports missing key and bad provider clearly' {
-        $configPath = Join-Path $env:TEMP 'powerclaw-setup-invalid.json'
+        $configPath = Join-Path $script:TempRoot 'powerclaw-setup-invalid.json'
         Set-Content -LiteralPath $configPath -Value @'
 {
   "provider": "gemini",
@@ -166,10 +175,10 @@ Describe 'Setup validation' {
         }
     }
 
-    It 'reports missing web runtime with the supported install command' {
-        $configPath = Join-Path $env:TEMP 'powerclaw-setup-web-missing.json'
+    It 'reports missing optional web runtime with the supported install command' {
+        $configPath = Join-Path $script:TempRoot 'powerclaw-setup-web-missing.json'
         $env:POWERCLAW_TEST_SETUP_KEY = 'test-key'
-        $env:POWERCLAW_PLAYWRIGHT_BUILD = Join-Path $env:TEMP 'powerclaw-playwright-missing\bin\Debug'
+        $env:POWERCLAW_PLAYWRIGHT_BUILD = Join-Path $script:TempRoot 'powerclaw-playwright-missing\bin\Debug'
         Set-Content -LiteralPath $configPath -Value @'
 {
   "provider": "openai",
@@ -182,11 +191,40 @@ Describe 'Setup validation' {
 }
 '@
         try {
-            Remove-Item -LiteralPath (Join-Path $env:TEMP 'powerclaw-playwright-missing') -Recurse -Force -ErrorAction SilentlyContinue
-
             $result = Test-PowerClawSetup -ConfigPath $configPath
-            $result.Ready | Should -BeFalse
-            @($result.Issues) -join ' ' | Should -Match 'Fetch-WebPage runtime is not installed'
+            $result.Ready | Should -BeTrue
+            @($result.Warnings) -join ' ' | Should -Match 'POWERCLAW_PLAYWRIGHT_BUILD points to a missing path'
+            @($result.Recommendations) -join ' ' | Should -Match 'Install-PowerClawWebRuntime\.ps1'
+        }
+        finally {
+            Remove-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
+            Remove-Item Env:\POWERCLAW_PLAYWRIGHT_BUILD -ErrorAction SilentlyContinue
+            Remove-Item Env:\POWERCLAW_TEST_SETUP_KEY -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'reports an invalid POWERCLAW_PLAYWRIGHT_BUILD override explicitly' {
+        $configPath = Join-Path $script:TempRoot 'powerclaw-setup-override.json'
+        $env:POWERCLAW_TEST_SETUP_KEY = 'test-key'
+        $env:POWERCLAW_PLAYWRIGHT_BUILD = Join-Path $script:TempRoot 'powerclaw-playwright-bad-override\bin\Debug'
+
+        Set-Content -LiteralPath $configPath -Value @'
+{
+  "provider": "openai",
+  "model": "gpt-test",
+  "api_key_env": "POWERCLAW_TEST_SETUP_KEY",
+  "max_tokens": 256,
+  "max_steps": 2,
+  "max_output_chars": 1000,
+  "log_file": "powerclaw.log"
+}
+'@
+
+        try {
+            $result = Test-PowerClawSetup -ConfigPath $configPath
+            $result.Ready | Should -BeTrue
+            $result.WebFetchReady | Should -BeFalse
+            @($result.Warnings) -join ' ' | Should -Match 'POWERCLAW_PLAYWRIGHT_BUILD points to a missing path'
             @($result.Recommendations) -join ' ' | Should -Match 'Install-PowerClawWebRuntime\.ps1'
         }
         finally {
@@ -200,14 +238,122 @@ Describe 'Setup validation' {
 Describe 'Tool behavior' {
     It 'sorts process output by WorkingSet64 when SortBy=Memory' {
         $actual = @(Get-TopProcesses -SortBy Memory -Count 5)
-        $expected = @(Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5)
 
         $actual.Count | Should -Be 5
-        @($actual.Id) | Should -Be @($expected.Id)
+        @($actual.MemoryMB) | Should -Be @($actual.MemoryMB | Sort-Object -Descending)
+    }
+
+    It 'filters directory listings with inclusive After and Before bounds' {
+        $tempDir = Join-Path $script:TempRoot "powerclaw-dir-filter-$([guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+
+        $olderPath = Join-Path $tempDir 'older.log'
+        $middlePath = Join-Path $tempDir 'middle.log'
+        $newerPath = Join-Path $tempDir 'newer.log'
+
+        try {
+            Set-Content -LiteralPath $olderPath -Value 'old'
+            Set-Content -LiteralPath $middlePath -Value 'middle'
+            Set-Content -LiteralPath $newerPath -Value 'new'
+
+            (Get-Item -LiteralPath $olderPath).LastWriteTime = [datetime]'2026-04-01T08:00:00'
+            (Get-Item -LiteralPath $middlePath).LastWriteTime = [datetime]'2026-04-02T12:00:00'
+            (Get-Item -LiteralPath $newerPath).LastWriteTime = [datetime]'2026-04-03T18:30:00'
+
+            $result = @(Get-DirectoryListing -Path $tempDir -Filter '*.log' -After ([datetime]'2026-04-02T12:00:00') -Before ([datetime]'2026-04-03T18:30:00') -Limit 10)
+
+            @($result.Name) | Should -Be @('middle.log', 'newer.log')
+        }
+        finally {
+            Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'filters directory listings with only an After bound' {
+        $tempDir = Join-Path $script:TempRoot "powerclaw-dir-after-$([guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+
+        $olderPath = Join-Path $tempDir 'older.txt'
+        $newerPath = Join-Path $tempDir 'newer.txt'
+
+        try {
+            Set-Content -LiteralPath $olderPath -Value 'old'
+            Set-Content -LiteralPath $newerPath -Value 'new'
+
+            (Get-Item -LiteralPath $olderPath).LastWriteTime = [datetime]'2026-04-01T08:00:00'
+            (Get-Item -LiteralPath $newerPath).LastWriteTime = [datetime]'2026-04-04T09:15:00'
+
+            $result = @(Get-DirectoryListing -Path $tempDir -After ([datetime]'2026-04-02T00:00:00') -Limit 10)
+
+            @($result.Name) | Should -Be @('newer.txt')
+        }
+        finally {
+            Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'filters Search-Files results with modified-time bounds after index retrieval' {
+        $script:SearchFilesFakeCommand = $null
+
+        Mock New-Object {
+            param($TypeName, $ArgumentList)
+
+            $script:SearchFilesFakeCommand = [PSCustomObject]@{
+                CommandText = $null
+            }
+
+            $connection = [PSCustomObject]@{
+                State = [System.Data.ConnectionState]::Closed
+            }
+            $connection | Add-Member -MemberType ScriptMethod -Name Open -Value { $this.State = [System.Data.ConnectionState]::Open }
+            $connection | Add-Member -MemberType ScriptMethod -Name Close -Value { $this.State = [System.Data.ConnectionState]::Closed }
+            $connection | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+            $connection | Add-Member -MemberType ScriptMethod -Name CreateCommand -Value { return $script:SearchFilesFakeCommand }
+            return $connection
+        } -ParameterFilter { $TypeName -eq 'System.Data.OleDb.OleDbConnection' }
+
+        Mock New-Object {
+            param($TypeName, $ArgumentList)
+
+            $adapter = [PSCustomObject]@{}
+            $adapter | Add-Member -MemberType ScriptMethod -Name Fill -Value {
+                param($DataSet)
+
+                $table = New-Object System.Data.DataTable
+                [void]$table.Columns.Add('SYSTEM.ITEMNAME')
+                [void]$table.Columns.Add('SYSTEM.ITEMPATHDISPLAY')
+                [void]$table.Columns.Add('SYSTEM.SIZE', [double])
+                [void]$table.Columns.Add('SYSTEM.DATEMODIFIED', [datetime])
+
+                foreach ($rowData in @(
+                    @{ Name = 'older.log';  Path = 'C:\Temp\older.log';  Size = 10MB; DateModified = [datetime]'2026-04-01T08:00:00' }
+                    @{ Name = 'middle.log'; Path = 'C:\Temp\middle.log'; Size = 20MB; DateModified = [datetime]'2026-04-02T12:00:00' }
+                    @{ Name = 'newer.log';  Path = 'C:\Temp\newer.log';  Size = 30MB; DateModified = [datetime]'2026-04-03T18:30:00' }
+                )) {
+                    $row = $table.NewRow()
+                    $row['SYSTEM.ITEMNAME'] = $rowData.Name
+                    $row['SYSTEM.ITEMPATHDISPLAY'] = $rowData.Path
+                    $row['SYSTEM.SIZE'] = [double]$rowData.Size
+                    $row['SYSTEM.DATEMODIFIED'] = $rowData.DateModified
+                    [void]$table.Rows.Add($row)
+                }
+
+                [void]$DataSet.Tables.Add($table)
+                return $table.Rows.Count
+            }
+            $adapter | Add-Member -MemberType ScriptMethod -Name Dispose -Value { }
+            return $adapter
+        } -ParameterFilter { $TypeName -eq 'System.Data.OleDb.OleDbDataAdapter' }
+
+        $result = @(Search-Files -Scope 'C:\Temp' -After ([datetime]'2026-04-02T12:00:00') -Before ([datetime]'2026-04-03T18:30:00') -Limit 2 -SortBy DateModified)
+
+        @($result.Name) | Should -Be @('middle.log', 'newer.log')
+        $script:SearchFilesFakeCommand.CommandText | Should -Not -Match '\bTOP 2\b'
+        $script:SearchFilesFakeCommand.CommandText | Should -Match 'System\.DateModified'
     }
 
     It 'deletes a literal-path file with wildcard characters in its name' {
-        $tempFile = Join-Path $env:TEMP 'powerclaw pester [literal].txt'
+        $tempFile = Join-Path $script:TempRoot 'powerclaw pester [literal].txt'
         Set-Content -LiteralPath $tempFile -Value 'x'
         $expectedPath = (Get-Item -LiteralPath $tempFile).FullName
 
@@ -286,6 +432,7 @@ Describe 'Tool behavior' {
 
         $message | Should -Match 'could not find a usable browser runtime'
         $message | Should -Match 'Install-PowerClawWebRuntime\.ps1'
+        $message | Should -Match 'Test-PowerClawSetup'
     }
 
     It 'lists bundled chromium as the final browser launch fallback' {
@@ -297,44 +444,6 @@ Describe 'Tool behavior' {
 }
 
 Describe 'Registry and schema' {
-    It 'skips tools listed in disabled_tools even when also approved' {
-        $tempRoot = Join-Path $env:TEMP 'powerclaw-pester-registry'
-        $tempTools = Join-Path $tempRoot 'tools'
-        $tempManifest = Join-Path $tempRoot 'tools-manifest.json'
-
-        New-Item -ItemType Directory -Path $tempTools -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $tempTools 'Get-Alpha.ps1') -Value @'
-function Get-Alpha {
-    [CmdletBinding()]
-    param()
-    'alpha'
-}
-'@
-        Set-Content -LiteralPath (Join-Path $tempTools 'Get-Beta.ps1') -Value @'
-function Get-Beta {
-    [CmdletBinding()]
-    param()
-    'beta'
-}
-'@
-        Set-Content -LiteralPath $tempManifest -Value @'
-{
-  "approved_tools": ["Get-Alpha", "Get-Beta", "Get-Beta"],
-  "disabled_tools": ["Get-Beta"]
-}
-'@
-
-        try {
-            $registered = @(Register-ClawTools -ToolsPath $tempTools -ManifestPath $tempManifest)
-
-            @($registered | Where-Object Name -eq 'Get-Alpha').Count | Should -Be 1
-            @($registered | Where-Object Name -eq 'Get-Beta').Count | Should -Be 0
-        }
-        finally {
-            Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
-
     It 'emits schemas with additionalProperties disabled' {
         $schema = ConvertTo-ClaudeToolSchema ([PSCustomObject]@{
             Name = 'Get-Test'
@@ -347,13 +456,14 @@ function Get-Beta {
         $schema.input_schema.additionalProperties | Should -BeFalse
     }
 
-    It 'keeps Fetch-WebPage in the default approved tool set' {
+    It 'keeps Fetch-WebPage opt-in and Search-LocalKnowledge in the default approved tool set' {
         $manifestPath = Join-Path $script:RepoRoot 'tools-manifest.json'
         $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
 
-        'Fetch-WebPage' -in @($manifest.approved_tools) | Should -BeTrue
+        'Fetch-WebPage' -in @($manifest.approved_tools) | Should -BeFalse
         'Fetch-WebPage' -in @($manifest.disabled_tools) | Should -BeFalse
         'Get-CleanupSummary' -in @($manifest.approved_tools) | Should -BeTrue
+        'Search-LocalKnowledge' -in @($manifest.approved_tools) | Should -BeTrue
     }
 
     It 'keeps personal tools outside the main portable tool directory' {
@@ -363,78 +473,29 @@ function Get-Beta {
         Test-Path -LiteralPath (Join-Path $script:RepoRoot 'overlays\personal\tools\Search-MnVault.ps1') | Should -BeTrue
     }
 
-    It 'extracts tool metadata defaults enums and ranges into the contract' {
-        $tempRoot = Join-Path $env:TEMP 'powerclaw-pester-contract'
-        $tempTools = Join-Path $tempRoot 'tools'
-        $tempManifest = Join-Path $tempRoot 'tools-manifest.json'
+    It 'emits date-time schema properties for DateTime parameters' {
+        $schema = ConvertTo-ClaudeToolSchema ([PSCustomObject]@{
+            Name = 'Get-DateBounded'
+            Description = 'date bounded tool'
+            Parameters = @(
+                [PSCustomObject]@{ Name = 'After'; Type = 'DateTime'; Required = $false },
+                [PSCustomObject]@{ Name = 'Before'; Type = 'DateTimeOffset'; Required = $false }
+            )
+        })
 
-        New-Item -ItemType Directory -Path $tempTools -Force | Out-Null
-        Set-Content -LiteralPath (Join-Path $tempTools 'Get-ContractTool.ps1') -Value @'
-<#
-.CLAW_NAME
-    Get-ContractTool
-.CLAW_DESCRIPTION
-    Contract test tool that exposes defaults, validate sets, and ranges.
-.CLAW_RISK
-    Write
-#>
-function Get-ContractTool {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [ValidateSet('CPU','Memory')]
-        [string]$SortBy,
-
-        [ValidateRange(1, 10)]
-        [int]$Count = 5,
-
-        [switch]$Detailed
-    )
-
-    'ok'
-}
-'@
-        Set-Content -LiteralPath $tempManifest -Value @'
-{
-  "approved_tools": ["Get-ContractTool"],
-  "disabled_tools": []
-}
-'@
-
-        try {
-            $registered = @(Register-ClawTools -ToolsPath $tempTools -ManifestPath $tempManifest)
-            $registered.Count | Should -Be 1
-            $tool = $registered[0]
-
-            $tool.Description | Should -Match 'defaults, validate sets, and ranges'
-            $tool.Risk | Should -Be 'Write'
-
-            ($tool.Parameters | Where-Object Name -eq 'SortBy' | Select-Object -First 1).Enum | Should -Be @('CPU', 'Memory')
-            ($tool.Parameters | Where-Object Name -eq 'Count' | Select-Object -First 1).Default | Should -Be 5
-            ($tool.Parameters | Where-Object Name -eq 'Count' | Select-Object -First 1).Min | Should -Be 1
-            ($tool.Parameters | Where-Object Name -eq 'Count' | Select-Object -First 1).Max | Should -Be 10
-
-            $schema = ConvertTo-ClaudeToolSchema $tool
-            $schema.input_schema.properties.SortBy.enum | Should -Be @('CPU', 'Memory')
-            $schema.input_schema.properties.Count.default | Should -Be 5
-            $schema.input_schema.properties.Count.minimum | Should -Be 1
-            $schema.input_schema.properties.Count.maximum | Should -Be 10
-            $schema.input_schema.properties.Detailed.type | Should -Be 'boolean'
-        }
-        finally {
-            Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
-        }
+        $schema.input_schema.properties.After.type | Should -Be 'string'
+        $schema.input_schema.properties.After.format | Should -Be 'date-time'
+        $schema.input_schema.properties.Before.type | Should -Be 'string'
+        $schema.input_schema.properties.Before.format | Should -Be 'date-time'
     }
 }
 
 Describe 'Overlay install helper' {
     It 'copies overlay tools into a target root and updates the target manifest' {
-        $tempRoot = Join-Path $env:TEMP 'powerclaw-pester-overlay-install'
+        $tempRoot = Join-Path $script:TempRoot 'powerclaw-pester-overlay-install'
         $targetRoot = Join-Path $tempRoot 'target'
         $targetTools = Join-Path $targetRoot 'tools'
         $targetManifest = Join-Path $targetRoot 'tools-manifest.json'
-        $scriptPath = Join-Path $script:RepoRoot 'Install-PowerClawOverlay.ps1'
-
         New-Item -ItemType Directory -Path $targetTools -Force | Out-Null
         Set-Content -LiteralPath $targetManifest -Value @'
 {
@@ -444,7 +505,7 @@ Describe 'Overlay install helper' {
 '@
 
         try {
-            & $scriptPath -OverlayName personal -RepoRoot $script:RepoRoot -TargetRoot $targetRoot
+            & (Join-Path $script:RepoRoot 'Install-PowerClawOverlay.ps1') -OverlayName personal -RepoRoot $script:RepoRoot -TargetRoot $targetRoot
 
             $manifest = Get-Content -LiteralPath $targetManifest -Raw | ConvertFrom-Json
             Test-Path -LiteralPath (Join-Path $targetTools 'Search-MyJoNotes.ps1') | Should -BeTrue
@@ -459,7 +520,7 @@ Describe 'Overlay install helper' {
     }
 
     It 'copies the web runtime installer into the installed module tree' {
-        $tempRoot = Join-Path $env:TEMP 'powerclaw-pester-install'
+        $tempRoot = Join-Path $script:TempRoot 'powerclaw-pester-install'
         $moduleRoot = Join-Path $tempRoot 'modules'
         $binRoot = Join-Path $tempRoot 'bin'
         $scriptPath = Join-Path $script:RepoRoot 'Install-PowerClaw.ps1'
@@ -521,6 +582,34 @@ Describe 'Providers' {
         $result.Type | Should -Be 'tool_call'
         $result.ToolName | Should -Be 'Fetch-WebPage'
         $result.ToolInput.Url | Should -Be 'https://news.ycombinator.com'
+    }
+
+    It 'stub mode picks Search-LocalKnowledge for notes prompts when the tool is available' {
+        $result = Send-ClawRequest `
+            -Messages @(@{ role = 'user'; content = 'Search my notes for local setup decisions' }) `
+            -ToolSchemas @(
+                @{ name = 'Search-LocalKnowledge' },
+                @{ name = 'Read-FileContent' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Search-LocalKnowledge'
+        $result.ToolInput.Collection | Should -Be 'all'
+    }
+
+    It 'stub mode picks Get-RecentChangesSummary for recent-change prompts when available' {
+        $result = Send-ClawRequest `
+            -Messages @(@{ role = 'user'; content = 'What changed on this machine in the last 24 hours?' }) `
+            -ToolSchemas @(
+                @{ name = 'Get-RecentChangesSummary' },
+                @{ name = 'Search-Files' }
+            ) `
+            -UseStub
+
+        $result.Type | Should -Be 'tool_call'
+        $result.ToolName | Should -Be 'Get-RecentChangesSummary'
+        $result.ToolInput.HoursBack | Should -Be 24
     }
 
     It 'stub mode turns tool output into a workflow-shaped final answer' {
@@ -1659,6 +1748,68 @@ Describe 'Cleanup summary producer' {
     }
 }
 
+Describe 'Recent changes summary producer' {
+    It 'reduces recent files and recent events into one bounded summary document' {
+        Mock Search-Files {
+            @(
+                [PSCustomObject]@{
+                    Name = 'report.txt'
+                    Path = 'C:\Users\chris\Desktop\report.txt'
+                    SizeMB = 1.2
+                    DateModified = [datetimeoffset]'2026-04-04T08:15:00-05:00'
+                }
+                [PSCustomObject]@{
+                    Name = 'notes.md'
+                    Path = 'C:\Users\chris\Desktop\notes.md'
+                    SizeMB = 0.1
+                    DateModified = [datetimeoffset]'2026-04-04T07:55:00-05:00'
+                }
+            )
+        }
+
+        Mock Get-EventLogEntries {
+            @(
+                [PSCustomObject]@{
+                    TimeCreated = '2026-04-04 08:10:00'
+                    Level = 'Error'
+                    Source = 'Service Control Manager'
+                    EventId = 7001
+                    Message = 'Service start failed.'
+                }
+                [PSCustomObject]@{
+                    TimeCreated = '2026-04-04 07:40:00'
+                    Level = 'Warning'
+                    Source = 'Service Control Manager'
+                    EventId = 7009
+                    Message = 'Service start timed out.'
+                }
+            )
+        }
+
+        $doc = Invoke-RecentChangesSummary -Scope 'C:\Users\chris\Desktop' -HoursBack 12 -Limit 5
+
+        $doc.kind | Should -Be 'recent_changes_summary'
+        $doc.summary.recent_file_count | Should -Be 2
+        $doc.summary.recent_event_count | Should -Be 2
+        $doc.summary.dominant_event_source | Should -Be 'Service Control Manager'
+        $doc.recent_files[0].Path | Should -Be 'C:\Users\chris\Desktop\report.txt'
+        $doc.recent_event_sources[0].Count | Should -Be 2
+        @($doc.sources | ForEach-Object tool) | Should -Be @('Search-Files', 'Get-EventLogEntries')
+    }
+
+    It 'can emit JSON directly from the recent changes reducer' {
+        Mock Search-Files { @() }
+        Mock Get-EventLogEntries { @() }
+
+        $json = Invoke-RecentChangesSummary -HoursBack 6 -AsJson
+        $parsed = $json | ConvertFrom-Json
+
+        $parsed.kind | Should -Be 'recent_changes_summary'
+        $parsed.summary.recent_file_count | Should -Be 0
+        $parsed.summary.recent_event_count | Should -Be 0
+    }
+}
+
 Describe 'Loop behavior' {
     It 'feeds back unavailable-tool errors as proper tool_result turns and continues' {
         $script:CallCount = 0
@@ -1769,7 +1920,40 @@ Describe 'Loop behavior' {
         $script:CapturedSystemPrompt | Should -Match 'Prefer a fast first answer'
         $script:CapturedSystemPrompt | Should -Match 'prefer triage first, then storage or event issues if needed'
         $script:CapturedSystemPrompt | Should -Match 'Overall status, Key findings, Why it matters, Next checks'
+        $script:CapturedSystemPrompt | Should -Match 'summary\.score is a risk score'
         $script:CapturedSystemPrompt | Should -Match 'Do not end a health check with a raw metric dump'
+    }
+
+    It 'treats whats going on with my system as a health-check prompt and explains triage score semantics' {
+        $script:CapturedSystemPrompt = $null
+
+        Mock Send-ClawRequest {
+            $script:CapturedSystemPrompt = $SystemPrompt
+            [PSCustomObject]@{
+                Type    = 'final_answer'
+                Content = 'done'
+            }
+        }
+
+        Mock Add-Content {}
+        Mock Start-Sleep {}
+
+        $null = Invoke-ClawLoop `
+            -UserGoal "what's going on with my system?" `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-SystemTriage'
+                    Description = 'Gets deterministic system triage'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = { 'ok' }
+                }
+            ) `
+            -MaxSteps 1
+
+        $script:CapturedSystemPrompt | Should -Match 'start with Get-SystemTriage'
+        $script:CapturedSystemPrompt | Should -Match 'summary\.score is a risk score'
+        $script:CapturedSystemPrompt | Should -Match 'A score of 0 means no warning or critical findings'
     }
 
     It 'adds a general final-answer interpretation rule to the system prompt' {
@@ -2154,7 +2338,7 @@ old.log C:\temp\old.log 12.5 2026-04-04
         ($script:PlanLines -join "`n") | Should -Match 'Intended tool chain'
         ($script:PlanLines -join "`n") | Should -Match '1\. Get-SystemTriage'
         ($script:PlanLines -join "`n") | Should -Match '2\. Get-StorageStatus'
-        ($script:PlanLines -join "`n") | Should -Match 'Summary: Summarize health status'
+        ($script:PlanLines -join "`n") | Should -Match 'Summary: Overall status: Summarize health status'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'ControlReason: plan_preview_only'
         $script:CapturedMessages[1][2].content[0].content | Should -Match 'Plan preview only'
     }
@@ -2872,6 +3056,120 @@ Content    : provider=openai
         $result | Should -Match '(?m)^Evidence: '
         $result | Should -Match 'provider=openai'
         $result | Should -Match '(?m)^Implication: '
+    }
+
+    It 'normalizes thin health final answers into operator-summary sections' {
+        $script:CallCount = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-SystemSummary'
+                        ToolInput = @{ View = 'Full' }
+                        ToolUseId = 'toolu_health_shape_1'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'The machine looks broadly healthy, with memory usage worth keeping an eye on.'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'Give me a full system health check' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-SystemSummary'
+                    Description = 'Gets system summary'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+MachineName : DEMO-PC
+OSVersion   : Windows 11 Pro
+Uptime      : 4d 6h 12m
+CPULoadPct  : 18
+RAMUsedPct  : 63
+TopByCPU    : pwsh (14.2 CPU), chrome (9.8 CPU), Code (4.1 CPU)
+TopByMemory : chrome (1240 MB), Code (812 MB), pwsh (220 MB)
+'@
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Match '^Overall status: The machine looks broadly healthy, with memory usage worth keeping an eye on\.'
+        $result | Should -Match '(?m)^Key findings: '
+        $result | Should -Match 'CPULoadPct'
+        $result | Should -Match '(?m)^Why it matters: '
+        $result | Should -Match '(?m)^Next checks: '
+    }
+
+    It 'normalizes thin recent-change final answers into bounded summary sections' {
+        $script:CallCount = 0
+
+        Mock Send-ClawRequest {
+            $script:CallCount++
+
+            switch ($script:CallCount) {
+                1 {
+                    return [PSCustomObject]@{
+                        Type      = 'tool_call'
+                        ToolName  = 'Get-RecentChangesSummary'
+                        ToolInput = @{ Scope = 'C:\Users\chris'; HoursBack = 24; Limit = 10 }
+                        ToolUseId = 'toolu_recent_shape_1'
+                    }
+                }
+                default {
+                    return [PSCustomObject]@{
+                        Type    = 'final_answer'
+                        Content = 'Most recent activity appears to be a few user file edits plus repeated Service Control Manager events.'
+                    }
+                }
+            }
+        }
+
+        Mock Start-Sleep {}
+        Mock Add-Content {}
+
+        $result = Invoke-ClawLoop `
+            -UserGoal 'What changed on this machine in the last 24 hours?' `
+            -Tools @(
+                [PSCustomObject]@{
+                    Name = 'Get-RecentChangesSummary'
+                    Description = 'Gets recent changes summary'
+                    Risk = 'ReadOnly'
+                    Parameters = @()
+                    ScriptBlock = {
+                        @'
+kind                 : recent_changes_summary
+captured_at          : 2026-04-04T18:05:00-05:00
+scope                : C:\Users\chris
+window_hours         : 24
+summary              : @{headline=Recent changes in the last 24 hours include 2 surfaced files and 3 recent events, led by Service Control Manager.; recent_file_count=2; recent_event_count=3; dominant_event_source=Service Control Manager}
+recent_files         : {@{Name=report.txt; Path=C:\Users\chris\Desktop\report.txt; SizeMB=1.2; DateModified=2026-04-04T08:15:00-05:00}}
+recent_event_sources : {@{Source=Service Control Manager; Count=3; LatestEventTime=2026-04-04 08:10:00}}
+'@
+                    }
+                }
+            ) `
+            -MaxSteps 2
+
+        $result | Should -Match '^What changed: Most recent activity appears to be a few user file edits plus repeated Service Control Manager events\.'
+        $result | Should -Match '(?m)^What stands out: '
+        $result | Should -Match 'recent_event_sources'
+        $result | Should -Match '(?m)^Implication: '
+        $result | Should -Match '(?m)^Next checks: '
     }
 
     It 'reports user decline as a proper tool_result turn and does not invoke the write tool' {

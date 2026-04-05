@@ -185,6 +185,9 @@ function Test-ClawHealthCheckGoal {
         $UserGoal -match '\bmachine health\b' -or
         $UserGoal -match '\bfull health check\b' -or
         $UserGoal -match '\bdiagnostic\b' -or
+        $UserGoal -match "\bwhat'?s going on with my (?:system|computer|machine)\b" -or
+        $UserGoal -match '\bwhat is going on with my (?:system|computer|machine)\b' -or
+        $UserGoal -match '\bhow is my (?:system|computer|machine)\b' -or
         $UserGoal -match "\bwhat'?s eating my cpu\b" -or
         $UserGoal -match '\bhard drive\b' -or
         $UserGoal -match '\bdisk\b' -or
@@ -193,6 +196,25 @@ function Test-ClawHealthCheckGoal {
         $UserGoal -match '\bcpu\b' -or
         $UserGoal -match '\bmemory\b' -or
         $UserGoal -match '\bram\b'
+    )
+}
+
+function Test-ClawRecentChangesGoal {
+    param(
+        [string]$UserGoal
+    )
+
+    if ([string]::IsNullOrWhiteSpace($UserGoal)) {
+        return $false
+    }
+
+    return (
+        $UserGoal -match '\bwhat changed\b' -or
+        $UserGoal -match '\brecent changes\b' -or
+        $UserGoal -match '\bchanged recently\b' -or
+        $UserGoal -match '\brecently changed\b' -or
+        $UserGoal -match '\blast \d+ (?:hour|hours|day|days)\b' -or
+        $UserGoal -match '\bin the last \d+ (?:hour|hours|day|days)\b'
     )
 }
 
@@ -470,7 +492,8 @@ function Test-ClawSyntheticFinalAnswerContent {
         $Content -match '^stubbed final answer$' -or
         $Content -match '^cleanup summary from\b' -or
         $Content -match '^investigation summary from\b' -or
-        $Content -match '^health summary from\b'
+        $Content -match '^health summary from\b' -or
+        $Content -match '^recent changes summary from\b'
     )
 }
 
@@ -544,6 +567,12 @@ function Get-ClawStructuredEvidencePreview {
                 return ($dataLines -join '; ')
             }
         }
+        'Search-LocalKnowledge' {
+            $dataLines = @($lines | Where-Object { $_ -match '^[^\s].+\s+[A-Za-z]:\\' } | Select-Object -First 3)
+            if ($dataLines.Count -gt 0) {
+                return ($dataLines -join '; ')
+            }
+        }
         'Get-DirectoryListing' {
             $dataLines = @($lines | Where-Object { $_ -match '^[^\s].+\s+\d{4}-\d{2}-\d{2}' -or $_ -match '^[^\s].+\s+(True|False)$' } | Select-Object -First 3)
             if ($dataLines.Count -gt 0) {
@@ -601,6 +630,26 @@ function Get-ClawStructuredEvidencePreview {
                 if (-not [string]::IsNullOrWhiteSpace($contentText)) {
                     $parts.Add($contentText) | Out-Null
                 }
+            }
+
+            if ($parts.Count -gt 0) {
+                return ($parts -join '; ')
+            }
+        }
+        'Get-RecentChangesSummary' {
+            $summaryLine = @($lines | Where-Object { $_ -match '^\s*summary\s*:\s*@\{.*headline=' } | Select-Object -First 1)
+            $filesLine = @($lines | Where-Object { $_ -match '^\s*recent_files\s*:' } | Select-Object -First 1)
+            $sourcesLine = @($lines | Where-Object { $_ -match '^\s*recent_event_sources\s*:' } | Select-Object -First 1)
+
+            $parts = [System.Collections.Generic.List[string]]::new()
+            if ($summaryLine) {
+                $parts.Add($summaryLine[0].Trim()) | Out-Null
+            }
+            if ($filesLine) {
+                $parts.Add($filesLine[0].Trim()) | Out-Null
+            }
+            if ($sourcesLine) {
+                $parts.Add($sourcesLine[0].Trim()) | Out-Null
             }
 
             if ($parts.Count -gt 0) {
@@ -831,8 +880,10 @@ function Format-ClawFinalAnswer {
     param(
         [string]$Content,
         [array]$Messages,
+        [bool]$IsHealthCheckGoal,
         [bool]$IsCleanupGoal,
-        [bool]$IsInvestigationGoal
+        [bool]$IsInvestigationGoal,
+        [bool]$IsRecentChangesGoal
     )
 
     if ([string]::IsNullOrWhiteSpace($Content)) {
@@ -840,11 +891,30 @@ function Format-ClawFinalAnswer {
     }
 
     $trimmedContent = $Content.Trim()
+    $hasStructuredHealthSections = $trimmedContent -match '(?im)^(overall status|key findings|why it matters|next checks)\s*:'
     $hasStructuredCleanupSections = $trimmedContent -match '(?im)^(what i found|what looks worth reviewing|what likely looks intentional|what is ambiguous|what is ambiguous or risky|next safe action)\s*:'
     $hasStructuredInvestigationSections = $trimmedContent -match '(?im)^(answer|summary|evidence|implication|key details|key takeaways)\s*:'
+    $hasStructuredRecentChangesSections = $trimmedContent -match '(?im)^(what changed|what stands out|implication|next checks)\s*:'
 
     if (Test-ClawSyntheticFinalAnswerContent -Content $trimmedContent) {
         return $Content
+    }
+
+    if ($IsHealthCheckGoal -and -not $hasStructuredHealthSections) {
+        $evidence = Get-ClawLatestToolEvidence -Messages $Messages
+        if (-not $evidence) {
+            return $Content
+        }
+        $evidencePreview = Get-ClawStructuredEvidencePreview -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+        if ([string]::IsNullOrWhiteSpace($evidencePreview)) {
+            $evidencePreview = 'Use the health signals already gathered from the read-only tools.'
+        }
+        return @"
+Overall status: $trimmedContent
+Key findings: $evidencePreview
+Why it matters: Interpret whether the surfaced signals look healthy, degraded, or worth attention based on the current evidence rather than repeating raw metrics.
+Next checks: Only inspect narrower tools if the current evidence still looks abnormal or ambiguous.
+"@.Trim()
     }
 
     if ($IsCleanupGoal -and -not $hasStructuredCleanupSections) {
@@ -881,6 +951,23 @@ Next safe action: Preview the specific candidate files and confirm before deleti
 Answer: $trimmedContent
 Evidence: $evidencePreview
 Implication: Explain what this means for the current setup or question, and only add a next step if the source material actually calls for one.
+"@.Trim()
+    }
+
+    if ($IsRecentChangesGoal -and -not $hasStructuredRecentChangesSections) {
+        $evidence = Get-ClawLatestToolEvidence -Messages $Messages
+        if (-not $evidence) {
+            return $Content
+        }
+        $evidencePreview = Get-ClawStructuredEvidencePreview -ToolName $evidence.ToolName -ToolResult $evidence.ToolResult
+        if ([string]::IsNullOrWhiteSpace($evidencePreview)) {
+            $evidencePreview = 'Use the recent file and event activity already gathered.'
+        }
+        return @"
+What changed: $trimmedContent
+What stands out: $evidencePreview
+Implication: Explain whether the surfaced file or event activity looks expected for the requested time window, and call out repeated sources or notable paths when they matter.
+Next checks: Use narrower follow-up tools only if the surfaced changes still look abnormal or ambiguous.
 "@.Trim()
     }
 
@@ -989,6 +1076,13 @@ obs-recording.mp4 C:\Users\chris\Downloads\obs-recording.mp4 2144.8 2026-04-02
 driver-pack.exe C:\Users\chris\Downloads\driver-pack.exe 812.1 2026-02-11
 '@
         }
+        'Search-LocalKnowledge' {
+            return @'
+Collection File Path Line Match LastWritten
+documents powerclaw-roadmap.md C:\Users\chris\Documents\powerclaw-roadmap.md 18 PowerClaw native local setup should stay fast 2026-04-04
+documents incident-notes.md C:\Users\chris\Documents\incident-notes.md 42 Event Viewer correlation helped isolate the service crash 2026-04-03
+'@
+        }
         'Read-FileContent' {
             $path = if ($ToolInput -and $ToolInput.ContainsKey('Path')) { $ToolInput.Path } else { 'README.md' }
             return @"
@@ -1066,14 +1160,25 @@ function Get-ClawWorkflowPromptHints {
         $hints.Add('WORKFLOW HINT: For a health check final answer, synthesize into a short operator summary: overall status first, then the most important issues, then concrete next checks if needed.')
         $hints.Add('WORKFLOW HINT: Health-check answers should feel like an operator readout, not a tool dump. Lead with whether the machine looks healthy, degraded, or needs attention.')
         $hints.Add('WORKFLOW HINT: Health-check final answers should usually follow this structure: Overall status, Key findings, Why it matters, Next checks. If nothing looks urgent, say that explicitly instead of sounding alarmed.')
+        $hints.Add('WORKFLOW HINT: In Get-SystemTriage, summary.score is a risk score, not a positive health score. A score of 0 means no warning or critical findings were detected in the current window.')
         $hints.Add('WORKFLOW HINT: Do not end a health check with a raw metric dump. Interpret the CPU, memory, storage, network, or service signals into a short operational judgment.')
     }
 
-        if (Test-ClawCleanupGoal -UserGoal $UserGoal) {
-            $cleanupContextTools = @(
-                'Get-DirectoryListing',
-                'Read-FileContent'
-            ) | Where-Object { $_ -in $availableToolNames }
+    if (Test-ClawRecentChangesGoal -UserGoal $UserGoal) {
+        $hints.Add('WORKFLOW HINT: For recent-change prompts, prefer one bounded summary of recent files and recent events rather than a long exploratory chain.')
+        if ('Get-RecentChangesSummary' -in $availableToolNames) {
+            $hints.Add('WORKFLOW HINT: For prompts about what changed recently, start with Get-RecentChangesSummary. It already combines recent file activity with recent system events into one deterministic summary.')
+        }
+        $hints.Add('WORKFLOW HINT: A normal recent-changes answer should usually finish in 1 to 2 tool calls.')
+        $hints.Add('WORKFLOW HINT: Recent-changes final answers should usually follow this order: what changed, what stands out, implication, then next checks only if the surfaced activity looks abnormal.')
+        $hints.Add('WORKFLOW HINT: Do not turn a recent-changes answer into a raw timeline dump. Summarize the dominant file paths, event sources, and whether the activity looks expected.')
+    }
+
+    if (Test-ClawCleanupGoal -UserGoal $UserGoal) {
+        $cleanupContextTools = @(
+            'Get-DirectoryListing',
+            'Read-FileContent'
+        ) | Where-Object { $_ -in $availableToolNames }
 
         $hints.Add('WORKFLOW HINT: For cleanup and biggest-file prompts, it is acceptable to chain discovery plus context. Find the likely cleanup targets first, then summarize what they are, how large they are, and what you would review before deletion.')
         if ('Get-CleanupSummary' -in $availableToolNames) {
@@ -1100,6 +1205,9 @@ function Get-ClawWorkflowPromptHints {
         $hints.Add('WORKFLOW HINT: Investigation answers should not read like a transcript of file contents or webpage text. Lead with the answer, then cite the settings, warnings, or excerpts that support it.')
         $hints.Add('WORKFLOW HINT: If you already have enough evidence from one source, answer directly instead of exploring sideways for extra context.')
         $hints.Add('WORKFLOW HINT: Investigation final answers should usually follow this order: answer, evidence, implication, and next step only when one is actually warranted by the source.')
+        if ('Search-LocalKnowledge' -in $availableToolNames) {
+            $hints.Add('WORKFLOW HINT: If the user asks about notes, docs, journals, vault content, or local knowledge, prefer Search-LocalKnowledge before broader file reads.')
+        }
     }
 
     return ($hints -join "`n")
@@ -1161,8 +1269,9 @@ $workflowHints
     $userExplicitlyRequestedWrite = Test-ClawExplicitWriteIntent -UserGoal $UserGoal
     $userExplicitlyRequestedPermanentDelete = Test-ClawExplicitPermanentDeleteIntent -UserGoal $UserGoal
     $isHealthCheckGoal = Test-ClawHealthCheckGoal -UserGoal $UserGoal
+    $isRecentChangesGoal = (Test-ClawRecentChangesGoal -UserGoal $UserGoal) -and -not $isHealthCheckGoal
     $isCleanupGoal = Test-ClawCleanupGoal -UserGoal $UserGoal
-    $isInvestigationGoal = (Test-ClawInvestigationGoal -UserGoal $UserGoal) -and -not $isHealthCheckGoal -and -not $isCleanupGoal
+    $isInvestigationGoal = (Test-ClawInvestigationGoal -UserGoal $UserGoal) -and -not $isHealthCheckGoal -and -not $isCleanupGoal -and -not $isRecentChangesGoal
     $planSteps = [System.Collections.Generic.List[object]]::new()
     $planSummary = $null
     $maxPlanPreviewSteps = [Math]::Min($MaxSteps, 3)
@@ -1238,8 +1347,10 @@ $workflowHints
             $finalAnswer = Format-ClawFinalAnswer `
                 -Content ([string]$response.Content) `
                 -Messages $messages `
+                -IsHealthCheckGoal $isHealthCheckGoal `
                 -IsCleanupGoal $isCleanupGoal `
-                -IsInvestigationGoal $isInvestigationGoal
+                -IsInvestigationGoal $isInvestigationGoal `
+                -IsRecentChangesGoal $isRecentChangesGoal
 
             if ($Plan) {
                 $planSummary = $finalAnswer
