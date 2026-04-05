@@ -213,6 +213,11 @@ function Test-ClawRecentChangesGoal {
         $UserGoal -match '\brecent changes\b' -or
         $UserGoal -match '\bchanged recently\b' -or
         $UserGoal -match '\brecently changed\b' -or
+        $UserGoal -match '\bcreated this week\b' -or
+        $UserGoal -match '\bcreated this month\b' -or
+        $UserGoal -match '\bcreated today\b' -or
+        $UserGoal -match '\bcreated yesterday\b' -or
+        $UserGoal -match '\bhow many files .* created\b' -or
         $UserGoal -match '\blast \d+ (?:hour|hours|day|days)\b' -or
         $UserGoal -match '\bin the last \d+ (?:hour|hours|day|days)\b'
     )
@@ -876,6 +881,85 @@ function Get-ClawCleanupCandidateStates {
     return ($parts -join '; ')
 }
 
+function Normalize-ClawStructuredSections {
+    param(
+        [string]$Content,
+        [string[]]$Headers
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Content) -or -not $Headers -or $Headers.Count -eq 0) {
+        return $Content
+    }
+
+    $lines = @($Content -split "`r?`n")
+    $normalizedHeaders = @($Headers | ForEach-Object { $_.ToLowerInvariant() })
+    $firstHeaderIndex = -1
+
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -match '^\s*([^:]+?)\s*:') {
+            $headerName = $Matches[1].Trim().ToLowerInvariant()
+            if ($headerName -in $normalizedHeaders) {
+                $firstHeaderIndex = $i
+                break
+            }
+        }
+    }
+
+    if ($firstHeaderIndex -lt 0) {
+        return $Content
+    }
+
+    $captured = [ordered]@{}
+    $currentHeader = $null
+    $currentLines = [System.Collections.Generic.List[string]]::new()
+
+    for ($i = $firstHeaderIndex; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        if ($line -match '^\s*([^:]+?)\s*:\s*(.*)$') {
+            $headerName = $Matches[1].Trim().ToLowerInvariant()
+            if ($headerName -in $normalizedHeaders) {
+                if ($currentHeader -and -not $captured.Contains($currentHeader)) {
+                    $captured[$currentHeader] = ($currentLines -join "`n").Trim()
+                }
+
+                $currentHeader = $headerName
+                $currentLines = [System.Collections.Generic.List[string]]::new()
+                $currentLines.Add($Matches[2]) | Out-Null
+                continue
+            }
+        }
+
+        if ($currentHeader) {
+            $currentLines.Add($line) | Out-Null
+        }
+    }
+
+    if ($currentHeader -and -not $captured.Contains($currentHeader)) {
+        $captured[$currentHeader] = ($currentLines -join "`n").Trim()
+    }
+
+    if ($captured.Count -eq 0) {
+        return $Content
+    }
+
+    $output = [System.Collections.Generic.List[string]]::new()
+    foreach ($header in $normalizedHeaders) {
+        if (-not $captured.Contains($header)) {
+            continue
+        }
+
+        $displayHeader = ($Headers | Where-Object { $_.ToLowerInvariant() -eq $header } | Select-Object -First 1)
+        $value = [string]$captured[$header]
+        $output.Add(("{0}: {1}" -f $displayHeader, $value).TrimEnd()) | Out-Null
+    }
+
+    if ($output.Count -eq 0) {
+        return $Content
+    }
+
+    return ($output -join "`n")
+}
+
 function Format-ClawFinalAnswer {
     param(
         [string]$Content,
@@ -898,6 +982,12 @@ function Format-ClawFinalAnswer {
 
     if (Test-ClawSyntheticFinalAnswerContent -Content $trimmedContent) {
         return $Content
+    }
+
+    if ($IsHealthCheckGoal -and $hasStructuredHealthSections) {
+        return Normalize-ClawStructuredSections `
+            -Content $trimmedContent `
+            -Headers @('Overall status', 'Key findings', 'Why it matters', 'Next checks')
     }
 
     if ($IsHealthCheckGoal -and -not $hasStructuredHealthSections) {
@@ -1172,6 +1262,7 @@ function Get-ClawWorkflowPromptHints {
         $hints.Add('WORKFLOW HINT: A normal recent-changes answer should usually finish in 1 to 2 tool calls.')
         $hints.Add('WORKFLOW HINT: Recent-changes final answers should usually follow this order: what changed, what stands out, implication, then next checks only if the surfaced activity looks abnormal.')
         $hints.Add('WORKFLOW HINT: Do not turn a recent-changes answer into a raw timeline dump. Summarize the dominant file paths, event sources, and whether the activity looks expected.')
+        $hints.Add('WORKFLOW HINT: Do not claim an exact file creation count unless a tool explicitly surfaced creation-time evidence. Search-Files and Get-RecentChangesSummary are primarily recent-activity and modified-time signals, not authoritative creation-time counters.')
     }
 
     if (Test-ClawCleanupGoal -UserGoal $UserGoal) {

@@ -1808,6 +1808,35 @@ Describe 'Recent changes summary producer' {
         $parsed.summary.recent_file_count | Should -Be 0
         $parsed.summary.recent_event_count | Should -Be 0
     }
+
+    It 'degrades cleanly when Search-Files is unavailable but event logs still work' {
+        Mock Get-Command {
+            param([string]$Name)
+            if ($Name -eq 'Search-Files') { return $null }
+            if ($Name -eq 'Get-EventLogEntries') { return [PSCustomObject]@{ Name = 'Get-EventLogEntries' } }
+            Microsoft.PowerShell.Core\Get-Command @PSBoundParameters
+        }
+
+        Mock Get-EventLogEntries {
+            @(
+                [PSCustomObject]@{
+                    TimeCreated = '2026-04-04 08:10:00'
+                    Level = 'Error'
+                    Source = 'Service Control Manager'
+                    EventId = 7001
+                    Message = 'Service start failed.'
+                }
+            )
+        }
+
+        $doc = Invoke-RecentChangesSummary -HoursBack 24 -Limit 5
+
+        $doc.summary.recent_file_count | Should -Be 0
+        $doc.summary.recent_event_count | Should -Be 1
+        $doc.summary.headline | Should -Match 'Partial recent-changes summary'
+        $doc.summary.headline | Should -Match 'recent file activity is unavailable'
+        @($doc.sources | ForEach-Object tool) | Should -Be @('Get-EventLogEntries')
+    }
 }
 
 Describe 'Loop behavior' {
@@ -2050,6 +2079,10 @@ Describe 'Loop behavior' {
         Test-ClawHealthCheckGoal -UserGoal 'What about my hard drive?' | Should -BeTrue
         Test-ClawHealthCheckGoal -UserGoal 'How is my disk space?' | Should -BeTrue
         Test-ClawHealthCheckGoal -UserGoal 'Check my storage situation' | Should -BeTrue
+    }
+
+    It 'treats created-this-week phrasing as a recent-changes goal' {
+        Test-ClawRecentChangesGoal -UserGoal 'Can you tell me how many files I created this week?' | Should -BeTrue
     }
 
     It 'adds workflow-specific summary guidance for read and investigate prompts' {
@@ -3113,6 +3146,37 @@ TopByMemory : chrome (1240 MB), Code (812 MB), pwsh (220 MB)
         $result | Should -Match 'CPULoadPct'
         $result | Should -Match '(?m)^Why it matters: '
         $result | Should -Match '(?m)^Next checks: '
+    }
+
+    It 'deduplicates repeated structured health sections and drops the raw object tail' {
+        $result = Format-ClawFinalAnswer `
+            -Content @'
+Overall status: **Overall Status: Healthy**
+
+Key findings:
+- System health score: 0 (optimal - no issues detected)
+- No critical errors or warnings in event logs
+
+What This Means:
+All core system components are functioning normally.
+
+Next Steps:
+None required.
+Key findings: schema_version : 1.0; kind : system_triage; summary : @{status=ok; score=0}
+Why it matters: Interpret whether the surfaced signals look healthy, degraded, or worth attention based on the current evidence rather than repeating raw metrics.
+Next checks: Only inspect narrower tools if the current evidence still looks abnormal or ambiguous.
+'@ `
+            -Messages @() `
+            -IsHealthCheckGoal $true `
+            -IsCleanupGoal $false `
+            -IsInvestigationGoal $false `
+            -IsRecentChangesGoal $false
+
+        ([regex]::Matches($result, '(?im)^Key findings\s*:')).Count | Should -Be 1
+        ([regex]::Matches($result, '(?im)^Why it matters\s*:')).Count | Should -Be 1
+        ([regex]::Matches($result, '(?im)^Next checks\s*:')).Count | Should -Be 1
+        $result | Should -Not -Match 'schema_version\s*:'
+        $result | Should -Match '^Overall status: \*\*Overall Status: Healthy\*\*'
     }
 
     It 'normalizes thin recent-change final answers into bounded summary sections' {
