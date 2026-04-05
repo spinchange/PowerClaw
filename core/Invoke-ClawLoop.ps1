@@ -648,13 +648,22 @@ function Get-ClawStructuredEvidencePreview {
 
             $parts = [System.Collections.Generic.List[string]]::new()
             if ($summaryLine) {
-                $parts.Add($summaryLine[0].Trim()) | Out-Null
+                $headlineMatch = [regex]::Match($summaryLine[0], 'headline=([^;]+)')
+                if ($headlineMatch.Success) {
+                    $parts.Add($headlineMatch.Groups[1].Value.Trim()) | Out-Null
+                }
             }
             if ($filesLine) {
-                $parts.Add($filesLine[0].Trim()) | Out-Null
+                $fileMatch = [regex]::Match($filesLine[0], 'Name=([^;]+); Path=([^;]+);')
+                if ($fileMatch.Success) {
+                    $parts.Add(("Recent file: {0} at {1}" -f $fileMatch.Groups[1].Value.Trim(), $fileMatch.Groups[2].Value.Trim())) | Out-Null
+                }
             }
             if ($sourcesLine) {
-                $parts.Add($sourcesLine[0].Trim()) | Out-Null
+                $sourceMatch = [regex]::Match($sourcesLine[0], 'Source=([^;]+); Count=([^;]+); LatestEventTime=([^}]+)')
+                if ($sourceMatch.Success) {
+                    $parts.Add(("Recent events: {0} had {1} surfaced event(s), latest at {2}" -f $sourceMatch.Groups[1].Value.Trim(), $sourceMatch.Groups[2].Value.Trim(), $sourceMatch.Groups[3].Value.Trim())) | Out-Null
+                }
             }
 
             if ($parts.Count -gt 0) {
@@ -1040,7 +1049,7 @@ Next safe action: Preview the specific candidate files and confirm before deleti
         return @"
 Answer: $trimmedContent
 Evidence: $evidencePreview
-Implication: Explain what this means for the current setup or question, and only add a next step if the source material actually calls for one.
+Implication: Based on the source material already gathered, this is the main takeaway for the current setup or question. Add a next step only when the evidence points to one.
 "@.Trim()
     }
 
@@ -1056,8 +1065,8 @@ Implication: Explain what this means for the current setup or question, and only
         return @"
 What changed: $trimmedContent
 What stands out: $evidencePreview
-Implication: Explain whether the surfaced file or event activity looks expected for the requested time window, and call out repeated sources or notable paths when they matter.
-Next checks: Use narrower follow-up tools only if the surfaced changes still look abnormal or ambiguous.
+Implication: The surfaced file and event activity should be read as either routine recent work or something worth a closer look, depending on whether the repeated sources, paths, or timestamps look expected for this window.
+Next checks: Only use narrower follow-up tools if the surfaced changes still look abnormal or ambiguous.
 "@.Trim()
     }
 

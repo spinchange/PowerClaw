@@ -3089,6 +3089,7 @@ Content    : provider=openai
         $result | Should -Match '(?m)^Evidence: '
         $result | Should -Match 'provider=openai'
         $result | Should -Match '(?m)^Implication: '
+        $result | Should -Not -Match 'Implication: Explain what this means'
     }
 
     It 'normalizes thin health final answers into operator-summary sections' {
@@ -3231,9 +3232,11 @@ recent_event_sources : {@{Source=Service Control Manager; Count=3; LatestEventTi
 
         $result | Should -Match '^What changed: Most recent activity appears to be a few user file edits plus repeated Service Control Manager events\.'
         $result | Should -Match '(?m)^What stands out: '
-        $result | Should -Match 'recent_event_sources'
+        $result | Should -Match 'Recent changes in the last 24 hours include 2 surfaced files and 3 recent events'
+        $result | Should -Match 'Recent events: Service Control Manager had 3 surfaced event\(s\)'
         $result | Should -Match '(?m)^Implication: '
         $result | Should -Match '(?m)^Next checks: '
+        $result | Should -Not -Match 'Implication: Explain whether the surfaced file or event activity looks expected'
     }
 
     It 'reports user decline as a proper tool_result turn and does not invoke the write tool' {
